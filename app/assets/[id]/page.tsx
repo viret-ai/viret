@@ -7,7 +7,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { supabaseServer } from "@/lib/supabase-server";
 import { getAssetPublicUrl } from "@/lib/storage";
-import DownloadPanel from "./DownloadPanel"; // ★ 追加
+import DownloadPanel from "./DownloadPanel";
 
 type AssetRow = {
   id: string;
@@ -18,6 +18,8 @@ type AssetRow = {
   preview_path: string;
   original_path: string;
   created_at: string;
+  width: number | null;
+  height: number | null;
 };
 
 type PageProps = {
@@ -40,7 +42,18 @@ export default async function AssetDetailPage({ params }: PageProps) {
   const { data, error } = await supabaseServer
     .from("assets")
     .select(
-      "id, owner_id, title, description, tags, preview_path, original_path, created_at",
+      [
+        "id",
+        "owner_id",
+        "title",
+        "description",
+        "tags",
+        "preview_path",
+        "original_path",
+        "created_at",
+        "width",
+        "height",
+      ].join(","),
     )
     .eq("id", assetId)
     .maybeSingle();
@@ -119,6 +132,8 @@ export default async function AssetDetailPage({ params }: PageProps) {
                 <DownloadPanel
                   assetId={assetId}
                   originalUrlExists={!!originalUrl}
+                  originalWidth={asset.width}
+                  originalHeight={asset.height}
                 />
 
                 <div className="space-y-3 rounded-xl bg-white p-4 shadow-sm">

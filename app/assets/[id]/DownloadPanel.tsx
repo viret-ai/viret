@@ -1,7 +1,10 @@
 // =====================================
 // app/assets/[id]/DownloadPanel.tsx
 // ダウンロードパネル（サイズ × フォーマット選択 UI）
-// small は広告視聴で解放（5秒）、HD/Original は有料予定（現状ダミー）
+// - Small: 無料（広告視聴で解放）短辺720相当
+// - HD: 有料予定・短辺1080相当
+//   → 元画像の短辺が1080px未満 or サイズ情報なしの場合は HD 無効
+// - Original: 有料予定・元サイズ
 // =====================================
 
 "use client";
@@ -11,14 +14,17 @@ import { useState, useEffect } from "react";
 type Props = {
   assetId: string;
   originalUrlExists: boolean;
+  // 元画像の実ピクセルサイズ（DB の width / height から渡す想定・無くてもOK）
+  originalWidth?: number | null;
+  originalHeight?: number | null;
 };
 
 type SizeOption = "sm" | "hd" | "original";
 type FormatOption = "jpg" | "png" | "webp";
 
 const SIZE_LABELS: Record<SizeOption, string> = {
-  sm: "Small（無料・長辺720px）",
-  hd: "HD（有料予定・長辺約2560px）",
+  sm: "Small（無料・短辺720px）",
+  hd: "HD（有料予定・短辺1080px）",
   original: "Original（有料予定・元サイズ）",
 };
 
@@ -28,12 +34,32 @@ const FORMAT_LABELS: Record<FormatOption, string> = {
   webp: "WebP",
 };
 
-export default function DownloadPanel({ assetId, originalUrlExists }: Props) {
+export default function DownloadPanel({
+  assetId,
+  originalUrlExists,
+  originalWidth,
+  originalHeight,
+}: Props) {
   const [format, setFormat] = useState<FormatOption>("jpg"); // 選択中フォーマット
   const [smallUnlocked, setSmallUnlocked] = useState(false); // small解放フラグ
   const [showAdModal, setShowAdModal] = useState(false); // 広告モーダル表示
 
   const disabled = !originalUrlExists;
+
+  // ===== HD可否ロジック（最小限） =====
+  const hasSizeInfo =
+    typeof originalWidth === "number" &&
+    typeof originalHeight === "number" &&
+    originalWidth > 0 &&
+    originalHeight > 0;
+
+  const shortEdge = hasSizeInfo
+    ? Math.min(originalWidth as number, originalHeight as number)
+    : null;
+
+  // サイズ情報があって短辺1080以上のときだけ HD を有効にする
+  const hdAvailable = hasSizeInfo && shortEdge !== null && shortEdge >= 1080;
+  const hdDisabled = disabled || !hdAvailable;
 
   const buildDownloadHref = (size: SizeOption) => {
     const params = new URLSearchParams({
@@ -56,7 +82,7 @@ export default function DownloadPanel({ assetId, originalUrlExists }: Props) {
           <div className="mb-1 text-[11px] font-semibold text-slate-600">
             フォーマット
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             {(Object.keys(FORMAT_LABELS) as FormatOption[]).map((f) => {
               const isActive = f === format;
               return (
@@ -119,7 +145,7 @@ export default function DownloadPanel({ assetId, originalUrlExists }: Props) {
             </div>
           </div>
 
-          {/* HD（有料予定） */}
+          {/* HD（有料予定・短辺1080px。条件満たさない/サイズ不明なら無効化） */}
           <div className="rounded-lg border border-slate-200 bg-white px-3 py-2">
             <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
               <div>
@@ -127,18 +153,29 @@ export default function DownloadPanel({ assetId, originalUrlExists }: Props) {
                   {SIZE_LABELS.hd}
                 </div>
                 <div className="text-[10px] text-amber-600">
-                  将来的にポイント・サブスクで解放予定
+                  {hasSizeInfo
+                    ? hdAvailable
+                      ? "将来的にポイント・サブスクで解放予定"
+                      : "元画像の解像度がHD基準（短辺1080px）に満たないため利用できません"
+                    : "サイズ情報が未登録のため、現在HDは利用できません"}
                 </div>
               </div>
               <a
                 href={buildDownloadHref("hd")}
-                className="mt-1 inline-flex items-center justify-center rounded-full bg-slate-700 px-3 py-1 text-[11px] font-semibold text-white shadow-sm transition hover:bg-slate-600 disabled:cursor-not-allowed disabled:bg-slate-300"
-                aria-disabled={disabled}
+                className={[
+                  "mt-1 inline-flex items-center justify-center rounded-full px-3 py-1 text-[11px] font-semibold shadow-sm transition",
+                  hdDisabled
+                    ? "cursor-not-allowed bg-slate-300 text-slate-500"
+                    : "bg-slate-700 text-white hover:bg-slate-600",
+                ].join(" ")}
+                aria-disabled={hdDisabled}
                 onClick={(e) => {
-                  if (disabled) e.preventDefault();
+                  if (hdDisabled) {
+                    e.preventDefault();
+                  }
                 }}
               >
-                選択フォーマットでDL（仮）
+                {hdAvailable ? "選択フォーマットでDL（仮）" : "HD非対応"}
               </a>
             </div>
           </div>
@@ -186,7 +223,7 @@ export default function DownloadPanel({ assetId, originalUrlExists }: Props) {
 }
 
 // =====================================
-// モーダル: 5秒の広告視聴ディレイ付き
+// モーダル: 5秒の広告視聴ディレイ付き（テスト用）
 // =====================================
 
 function AdWatchModal({
@@ -244,7 +281,7 @@ function AdWatchModal({
             "rounded-full px-3 py-1 text-[11px] text-white",
             done
               ? "bg-emerald-600 hover:bg-emerald-500"
-              : "bg-slate-300 cursor-not-allowed",
+              : "cursor-not-allowed bg-slate-300",
           ].join(" ")}
         >
           {done ? "視聴完了" : `視聴中… ${seconds}`}

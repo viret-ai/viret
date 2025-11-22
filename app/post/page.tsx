@@ -9,6 +9,29 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 
+// 画像ファイルから width / height を取得するユーティリティ
+const getImageSize = (file: File): Promise<{ width: number; height: number }> => {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      const width = img.naturalWidth;
+      const height = img.naturalHeight;
+      URL.revokeObjectURL(url);
+      if (!width || !height) {
+        reject(new Error("画像サイズを取得できませんでした。"));
+      } else {
+        resolve({ width, height });
+      }
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("画像の読み込みに失敗しました。"));
+    };
+    img.src = url;
+  });
+};
+
 export default function PostPage() {
   const router = useRouter();
   const [title, setTitle] = useState("");
@@ -53,6 +76,19 @@ export default function PostPage() {
     }
 
     try {
+      // 画像サイズ取得
+      const { width, height } = await getImageSize(file);
+      const shortEdge = Math.min(width, height);
+
+      // 短辺720px未満はアップロード不可
+      if (shortEdge < 720) {
+        setMsg(
+          `この画像は短辺${shortEdge}pxのため、Viretでは登録できません（最低720px以上が必要です）。検出サイズ: ${width} × ${height}px`,
+        );
+        setLoading(false);
+        return;
+      }
+
       const ext = file.name.split(".").pop() || "png";
       const assetId = crypto.randomUUID(); // assets.id と合わせる
       const path = `${user.id}/${assetId}/original.${ext}`;
@@ -84,6 +120,8 @@ export default function PostPage() {
         preview_path: path,
         original_path: path,
         status: "public",
+        width, // ★ 追加：元画像の幅
+        height, // ★ 追加：元画像の高さ
       });
 
       if (insertError) {
@@ -94,18 +132,20 @@ export default function PostPage() {
 
       setMsg("素材を登録しました。");
       router.push("/assets");
-    } finally {
+    } catch (err: any) {
+      console.error(err);
+      setMsg(err?.message || "アップロード中にエラーが発生しました。");
       setLoading(false);
     }
   };
 
   return (
     <main className="min-h-screen p-6">
-      <h1 className="text-xl font-bold mb-6">素材を投稿する</h1>
+      <h1 className="mb-6 text-xl font-bold">素材を投稿する</h1>
 
-      <form onSubmit={handleSubmit} className="space-y-4 max-w-lg">
+      <form onSubmit={handleSubmit} className="max-w-lg space-y-4">
         <div>
-          <label className="block text-sm font-medium text-slate-700 mb-1">
+          <label className="mb-1 block text-sm font-medium text-slate-700">
             画像ファイル
           </label>
           <input
@@ -117,7 +157,7 @@ export default function PostPage() {
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-slate-700 mb-1">
+          <label className="mb-1 block text-sm font-medium text-slate-700">
             タイトル
           </label>
           <input
@@ -129,7 +169,7 @@ export default function PostPage() {
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-slate-700 mb-1">
+          <label className="mb-1 block text-sm font-medium text-slate-700">
             説明
           </label>
           <textarea
@@ -142,11 +182,11 @@ export default function PostPage() {
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-slate-700 mb-1">
+          <label className="mb-1 block text-sm font-medium text-slate-700">
             タグ（カンマ区切り）
           </label>
           <input
-            className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
+            className="w-full rounded-md border border-slate-300 bg白 px-3 py-2 text-sm"
             value={tags}
             onChange={(e) => setTags(e.target.value)}
             placeholder="portrait, city, cyberpunk など"
