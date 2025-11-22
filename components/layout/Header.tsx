@@ -1,6 +1,7 @@
 // =====================================
 // components/layout/Header.tsx
 // サイト共通ヘッダー（dev専用管理者ボタン付き＋プランリンク）
+// テーマ連動版
 // =====================================
 
 "use client";
@@ -38,8 +39,11 @@ export default function Header() {
   };
 
   return (
-    <header className="w-full border-b border-slate-200 bg-white/80 backdrop-blur px-6 py-3 flex items-center justify-between">
-      <Link href="/" className="text-lg font-semibold text-slate-900">
+    <header className="flex w-full items-center justify-between border-b border-slate-200 bg-[var(--v-bg)] px-6 py-3 backdrop-blur">
+      <Link
+        href="/"
+        className="text-lg font-semibold tracking-tight text-[var(--v-text)]"
+      >
         Viret
       </Link>
 
@@ -64,7 +68,7 @@ export default function Header() {
         {process.env.NODE_ENV === "development" && (
           <button
             onClick={handleDevAdminLogin}
-            className="rounded-md bg-sky-600 px-2 py-1 text-white hover:bg-sky-500 text-[10px]"
+            className="rounded-sm bg-sky-600 px-2 py-1 text-[10px] font-semibold text-white hover:bg-sky-500"
           >
             管理者ログイン
           </button>

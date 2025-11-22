@@ -1,41 +1,39 @@
 // =====================================
 // app/page.tsx
-// トップページ（Supabase から site_settings を読み込む本番仕様）
+// トップページ（site_settings 依存なし / 静的表示）
 // =====================================
 
-import { supabaseServer } from "@/lib/supabase-server";
 import TopSearchHero from "@/components/home/TopSearchHero";
 import SellerGuideSection from "@/components/home/SellerGuideSection";
+import Card from "@/components/ui/Card";
 
-export default async function Page() {
-  // ---------- site_settings を一行だけ取得 ----------
-  const { data: settings, error } = await supabaseServer
-    .from("site_settings")
-    .select("*")
-    .limit(1)
-    .single();
+export default function Page() {
+  // いまは静的テキストのみ（site_settings は廃止）
+  const hero_title = "AI画像とレタッチャーが出会うストックマーケット";
+  const hero_subtitle = "商用利用OKのAI画像を探す・預ける・磨いてもらう場所。";
 
-  // 万一取得できなかったらデフォルト文言で表示
-  const fallback = {
-    hero_title: "AI画像とレタッチャーが出会うストックマーケット",
-    hero_subtitle: "商用利用OKのAI画像を探す・預ける・磨いてもらう場所。",
-    seller_guide_title: "あなたのAI画像を、ちゃんと整理して届けよう。",
-    seller_guide_body:
-      "AI生成画像とレタッチ後データだけを扱う専用ストックサイトです。まずは無料登録して、作品をアップロードしてみてください。",
-  };
-
-  const cfg = settings ?? fallback;
+  const seller_title = "あなたのAI画像を、ちゃんと整理して届けよう。";
+  const seller_body =
+    "AI生成画像とレタッチ後データだけを扱う専用ストックサイトです。まずは無料登録して、作品をアップロードしてみてください。";
 
   return (
-    <main className="min-h-screen p-6 space-y-20">
-      <TopSearchHero
-        title={cfg.hero_title}
-        subtitle={cfg.hero_subtitle}
-      />
-      <SellerGuideSection
-        title={cfg.seller_guide_title}
-        body={cfg.seller_guide_body}
-      />
+    <main
+      className="
+        min-h-screen
+        bg-[var(--v-bg)]
+        text-[var(--v-text)]
+        px-4
+        py-10
+        space-y-20
+      "
+    >
+      {/* Hero */}
+      <TopSearchHero title={hero_title} subtitle={hero_subtitle} />
+
+      {/* Guide */}
+      <Card as="section" padded>
+        <SellerGuideSection title={seller_title} body={seller_body} />
+      </Card>
     </main>
   );
 }

@@ -1,6 +1,7 @@
 // =====================================
 // app/assets/[id]/page.tsx
 // 素材詳細ページ（Adobe Stock風レイアウト＋DLパネル）
+// Card コンポーネント＋テーマ連動版
 // =====================================
 
 import Link from "next/link";
@@ -8,6 +9,7 @@ import { notFound } from "next/navigation";
 import { supabaseServer } from "@/lib/supabase-server";
 import { getAssetPublicUrl } from "@/lib/storage";
 import DownloadPanel from "./DownloadPanel";
+import Card from "@/components/ui/Card";
 
 type AssetRow = {
   id: string;
@@ -66,7 +68,7 @@ export default async function AssetDetailPage({ params }: PageProps) {
 
   const previewUrl = asset ? getAssetPublicUrl(asset.preview_path) : null;
   const originalUrl =
-    asset && (getAssetPublicUrl(asset.original_path) || previewUrl) || "";
+    (asset && (getAssetPublicUrl(asset.original_path) || previewUrl)) || "";
 
   const ownerLabel =
     asset && asset.owner_id
@@ -74,45 +76,54 @@ export default async function AssetDetailPage({ params }: PageProps) {
       : "unknown_creator";
 
   return (
-    <main className="min-h-screen bg-slate-50 px-4 py-6">
+    <main className="min-h-screen bg-[var(--v-bg)] px-4 py-6">
       <div className="mx-auto flex max-w-6xl flex-col gap-4">
         {/* パンくず */}
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="text-[11px] text-slate-500">
+        <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-500">
+          <div className="flex flex-wrap items-center gap-1">
             <Link href="/" className="hover:underline">
               Viret
             </Link>
-            <span className="mx-1">/</span>
+            <span>/</span>
             <Link href="/assets" className="hover:underline">
               素材一覧
             </Link>
-            <span className="mx-1">/</span>
-            <span className="text-slate-700">素材詳細</span>
+            {asset && (
+              <>
+                <span>/</span>
+                <span className="text-slate-500">素材詳細</span>
+                <span>/</span>
+                <span className="text-slate-700">{asset.title}</span>
+              </>
+            )}
           </div>
-          <div className="text-[11px] text-slate-500">
+          <div>
             素材ID: <span className="font-mono">{assetId}</span>
           </div>
         </div>
 
         {error && (
-          <div className="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-[11px] text-red-700">
+          <Card
+            variant="ghost"
+            className="border border-red-300 bg-red-50 px-4 py-3 text-[11px] text-red-700"
+          >
             <div className="font-semibold">Supabase エラー</div>
             <pre className="mt-1 whitespace-pre-wrap break-all">
               {JSON.stringify(error, null, 2)}
             </pre>
-          </div>
+          </Card>
         )}
 
         {asset && (
           <>
             {/* 上段：プレビュー＋DLパネル */}
             <section className="flex flex-col gap-6 lg:flex-row">
-              {/* 左：プレビュー */}
-              <div className="flex-1 rounded-xl bg-white p-4 shadow-sm">
+              {/* 左：プレビュー（枠は角なし固定） */}
+              <Card as="section" className="flex-1 shadow-sm">
                 <div className="mb-3 text-xs font-semibold text-slate-500">
                   プレビュー
                 </div>
-                <div className="flex items-center justify-center overflow-hidden rounded-lg bg-slate-100">
+                <div className="flex items-center justify-center overflow-hidden rounded-none bg-slate-100">
                   {previewUrl ? (
                     <img
                       src={previewUrl}
@@ -125,7 +136,7 @@ export default async function AssetDetailPage({ params }: PageProps) {
                     </div>
                   )}
                 </div>
-              </div>
+              </Card>
 
               {/* 右：ダウンロードパネル＋メタ */}
               <aside className="w-full max-w-md space-y-4 lg:w-80">
@@ -134,9 +145,10 @@ export default async function AssetDetailPage({ params }: PageProps) {
                   originalUrlExists={!!originalUrl}
                   originalWidth={asset.width}
                   originalHeight={asset.height}
+                  title={asset.title}
                 />
 
-                <div className="space-y-3 rounded-xl bg-white p-4 shadow-sm">
+                <Card className="space-y-3">
                   <div>
                     <div className="text-[11px] font-semibold text-slate-500">
                       クリエイター
@@ -170,13 +182,13 @@ export default async function AssetDetailPage({ params }: PageProps) {
                       </div>
                     </div>
                   )}
-                </div>
+                </Card>
               </aside>
             </section>
 
             {/* 下段：説明＋今後の拡張 */}
             <section className="mt-2 grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
-              <div className="rounded-xl bg-white p-4 shadow-sm">
+              <Card>
                 <h2 className="text-sm font-semibold text-slate-900">
                   素材の説明
                 </h2>
@@ -189,9 +201,9 @@ export default async function AssetDetailPage({ params }: PageProps) {
                     素材説明はまだ登録されていません。
                   </p>
                 )}
-              </div>
+              </Card>
 
-              <div className="rounded-xl bg-white p-4 text-xs text-slate-500 shadow-sm">
+              <Card className="text-xs text-slate-500">
                 <h2 className="text-sm font-semibold text-slate-900">
                   この素材からできること
                 </h2>
@@ -199,15 +211,15 @@ export default async function AssetDetailPage({ params }: PageProps) {
                   将来的には、ここに「このAI画像をレタッチ依頼に出す」ボタンや、
                   同じクリエイターの別作品、似たタグの素材などを表示する予定です。
                 </p>
-              </div>
+              </Card>
             </section>
           </>
         )}
 
         {!asset && !error && (
-          <div className="mt-10 rounded-lg bg-white px-4 py-6 text-sm text-slate-600 shadow-sm">
+          <Card className="mt-10 text-sm text-slate-600">
             対象の素材が見つかりませんでした。
-          </div>
+          </Card>
         )}
       </div>
     </main>

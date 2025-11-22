@@ -1,29 +1,50 @@
 // =====================================
 // app/layout.tsx
-// 全ページ共通レイアウト（ライトテーマ）
+// ルートレイアウト（lib/theme.ts 連動テーマ）
+// - body に CSS 変数を適用
+// - Light/Dark の切り替えは今後 user 設定で対応
 // =====================================
 
-import type { ReactNode } from "react";
 import "./globals.css";
+import type { Metadata } from "next";
+import type { ReactNode, CSSProperties } from "react";
 import Header from "@/components/layout/Header";
 import Footer from "@/components/layout/Footer";
+import { themeConfig } from "@/lib/theme";
 
-export const metadata = {
+export const metadata: Metadata = {
   title: "Viret",
-  description: "AI Visual × Retouch × Market",
+  description: "AI画像とレタッチャーのための素材マーケット",
 };
 
-type RootLayoutProps = {
+export default function RootLayout({
+  children,
+}: {
   children: ReactNode;
-};
+}) {
+  // いまは常にライトモード、後でダーク対応
+  const isDark = false;
 
-export default function RootLayout({ children }: RootLayoutProps) {
+  const colors = themeConfig.colors;
+  const bgColor = isDark ? colors.darkBg : colors.lightBg;
+  const textColor = isDark ? colors.darkText : colors.lightText;
+  const cardBgColor = isDark ? colors.darkCardBg : colors.lightCardBg;
+
   return (
-    <html lang="ja">
-      <body className="min-h-screen bg-slate-50 text-slate-900">
-        <div className="flex min-h-screen flex-col">
+    <html lang="ja" className={isDark ? "dark" : ""}>
+      <body
+        className="min-h-screen antialiased"
+        style={
+          {
+            "--v-bg": bgColor,
+            "--v-text": textColor,
+            "--v-card-bg": cardBgColor,
+          } as CSSProperties
+        }
+      >
+        <div className="flex min-h-screen flex-col bg-[var(--v-bg)] text-[var(--v-text)]">
           <Header />
-          <div className="flex-1">{children}</div>
+          <main className="flex-1">{children}</main>
           <Footer />
         </div>
       </body>

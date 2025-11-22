@@ -1,6 +1,7 @@
 // =====================================
 // app/post/page.tsx
 // 素材アップロードページ（AI画像投稿）
+// テーマ連動＋Card レイアウト版
 // =====================================
 
 "use client";
@@ -8,9 +9,12 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import Card from "@/components/ui/Card";
 
 // 画像ファイルから width / height を取得するユーティリティ
-const getImageSize = (file: File): Promise<{ width: number; height: number }> => {
+const getImageSize = (
+  file: File,
+): Promise<{ width: number; height: number }> => {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(file);
     const img = new Image();
@@ -120,8 +124,8 @@ export default function PostPage() {
         preview_path: path,
         original_path: path,
         status: "public",
-        width, // ★ 追加：元画像の幅
-        height, // ★ 追加：元画像の高さ
+        width, // 元画像の幅
+        height, // 元画像の高さ
       });
 
       if (insertError) {
@@ -140,69 +144,84 @@ export default function PostPage() {
   };
 
   return (
-    <main className="min-h-screen p-6">
-      <h1 className="mb-6 text-xl font-bold">素材を投稿する</h1>
+    <main className="min-h-screen bg-[var(--v-bg)] px-4 py-6">
+      <div className="mx-auto flex max-w-3xl flex-col gap-4">
+        <h1 className="text-xl font-bold tracking-tight text-[var(--v-text)]">
+          素材を投稿する
+        </h1>
 
-      <form onSubmit={handleSubmit} className="max-w-lg space-y-4">
-        <div>
-          <label className="mb-1 block text-sm font-medium text-slate-700">
-            画像ファイル
-          </label>
-          <input
-            type="file"
-            accept="image/*"
-            onChange={handleFileChange}
-            className="block w-full text-sm"
-          />
-        </div>
+        <Card as="section" className="max-w-xl">
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <label className="mb-1 block text-sm font-medium text-slate-700">
+                画像ファイル
+              </label>
+              <input
+                type="file"
+                accept="image/*"
+                onChange={handleFileChange}
+                className="block w-full text-sm text-[var(--v-text)]"
+              />
+              <p className="mt-1 text-[11px] text-slate-500">
+                短辺720px以上の AI画像のみアップロードできます。
+              </p>
+            </div>
 
-        <div>
-          <label className="mb-1 block text-sm font-medium text-slate-700">
-            タイトル
-          </label>
-          <input
-            className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            placeholder="作品タイトル"
-          />
-        </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium text-slate-700">
+                タイトル
+              </label>
+              <input
+                className="w-full rounded-sm border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="作品タイトル"
+              />
+            </div>
 
-        <div>
-          <label className="mb-1 block text-sm font-medium text-slate-700">
-            説明
-          </label>
-          <textarea
-            className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
-            rows={4}
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder="どのような画像か、利用イメージなど"
-          />
-        </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium text-slate-700">
+                説明
+              </label>
+              <textarea
+                className="w-full rounded-sm border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
+                rows={4}
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder="どのような画像か、利用イメージなど"
+              />
+            </div>
 
-        <div>
-          <label className="mb-1 block text-sm font-medium text-slate-700">
-            タグ（カンマ区切り）
-          </label>
-          <input
-            className="w-full rounded-md border border-slate-300 bg白 px-3 py-2 text-sm"
-            value={tags}
-            onChange={(e) => setTags(e.target.value)}
-            placeholder="portrait, city, cyberpunk など"
-          />
-        </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium text-slate-700">
+                タグ（カンマ区切り）
+              </label>
+              <input
+                className="w-full rounded-sm border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
+                value={tags}
+                onChange={(e) => setTags(e.target.value)}
+                placeholder="portrait, city, cyberpunk など"
+              />
+            </div>
 
-        <button
-          type="submit"
-          disabled={loading}
-          className="rounded-md bg-sky-600 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-500 disabled:opacity-60"
-        >
-          {loading ? "アップロード中..." : "投稿する"}
-        </button>
+            <div className="pt-2">
+              <button
+                type="submit"
+                disabled={loading}
+                className="inline-flex items-center rounded-sm bg-sky-600 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-500 disabled:opacity-60"
+              >
+                {loading ? "アップロード中..." : "投稿する"}
+              </button>
+            </div>
 
-        {msg && <p className="mt-2 text-sm text-slate-700">{msg}</p>}
-      </form>
+            {msg && (
+              <p className="mt-2 text-sm text-slate-700 whitespace-pre-line">
+                {msg}
+              </p>
+            )}
+          </form>
+        </Card>
+      </div>
     </main>
   );
 }
