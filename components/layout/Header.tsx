@@ -1,7 +1,7 @@
 // =====================================
 // components/layout/Header.tsx
 // サイト共通ヘッダー（dev専用管理者ボタン付き＋プランリンク）
-// テーマ連動版
+// themeConfig.components は使わず、CSS変数＋typography＋Buttonで統一
 // =====================================
 
 "use client";
@@ -9,6 +9,8 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { typography } from "@/lib/theme";
+import Button from "@/components/ui/Button";
 
 export default function Header() {
   const router = useRouter();
@@ -39,11 +41,16 @@ export default function Header() {
   };
 
   return (
-    <header className="flex w-full items-center justify-between border-b border-slate-200 bg-[var(--v-bg)] px-6 py-3 backdrop-blur">
-      <Link
-        href="/"
-        className="text-lg font-semibold tracking-tight text-[var(--v-text)]"
-      >
+    <header
+      className="
+        flex w-full items-center justify-between
+        border-b border-slate-200
+        bg-[var(--v-bg)]/95
+        px-6 py-3
+        backdrop-blur
+      "
+    >
+      <Link href="/" className={`${typography("h2")} text-lg`}>
         Viret
       </Link>
 
@@ -66,12 +73,15 @@ export default function Header() {
 
         {/* 🔧 devモード限定 管理者ログインボタン */}
         {process.env.NODE_ENV === "development" && (
-          <button
+          <Button
+            type="button"
+            variant="primary"
+            size="sm"
             onClick={handleDevAdminLogin}
-            className="rounded-sm bg-sky-600 px-2 py-1 text-[10px] font-semibold text-white hover:bg-sky-500"
+            className="text-[10px] px-2 py-1"
           >
             管理者ログイン
-          </button>
+          </Button>
         )}
       </nav>
     </header>

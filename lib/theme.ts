@@ -1,8 +1,10 @@
 // =====================================
 // lib/theme.ts
 // Viret テーマ設定（色 / 角丸 / 影 / 余白 / タイポグラフィ）
+// - Card / Button / Typography が参照する共通トークン
 // =====================================
 
+// 角丸・影トークン
 export type RadiusToken = "none" | "sm" | "md" | "lg" | "xl";
 export type ShadowToken = "none" | "xs" | "sm" | "md";
 
@@ -199,4 +201,16 @@ export function getTypographyStyle(
   const fontFamily =
     t.font === "heading" ? themeConfig.headingFont : themeConfig.bodyFont;
   return { fontFamily };
+}
+
+// =====================================
+// typography() ヘルパー
+// - .font-heading / .font-body と組み合わせた
+//   完成済み className を返すショートカット
+// =====================================
+
+export function typography(variant: TypographyVariant): string {
+  const t = themeConfig.typography[variant];
+  const fontClass = t.font === "heading" ? "font-heading" : "font-body";
+  return [fontClass, getTypographyClasses(variant)].filter(Boolean).join(" ");
 }

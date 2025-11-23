@@ -1,3 +1,9 @@
+// =====================================
+// app/assets/[id]/DownloadPanel.tsx
+// DLパネル（Small/HD/Original＋広告視聴テスト）
+// Card / Button / タイポ整理版
+// =====================================
+
 "use client";
 
 import { useState, useEffect } from "react";
@@ -23,7 +29,7 @@ const FORMAT_LABELS: Record<FormatOption, string> = {
 function calcResizedSize(
   w: number,
   h: number,
-  targetShortEdge: number
+  targetShortEdge: number,
 ): { w: number; h: number } {
   const short = Math.min(w, h);
   const scale = targetShortEdge / short;
@@ -84,26 +90,28 @@ export default function DownloadPanel({
 
   return (
     <>
-      {/* ★ Card 化 */}
-      <Card className="space-y-3">
-        {/* Title */}
-        <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-          Title
-        </div>
-        {title && (
-          <div className="mb-3">
-            <h2 className="text-sm font-semibold leading-snug break-words">
+      {/* 全体パネル */}
+      <Card className="space-y-4 text-xs text-slate-700">
+        {/* Title ブロック */}
+        <div>
+          <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+            Title
+          </div>
+          {title && (
+            <h2 className="text-sm font-semibold leading-snug text-slate-900 break-words">
               {title}
             </h2>
-          </div>
-        )}
-
-        {/* Download */}
-        <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
-          Download
+          )}
         </div>
 
-        {/* Format */}
+        {/* Download ラベル */}
+        <div>
+          <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+            Download
+          </div>
+        </div>
+
+        {/* フォーマット選択 */}
         <div>
           <div className="mb-1 text-[11px] font-semibold text-slate-600">
             フォーマット
@@ -117,7 +125,7 @@ export default function DownloadPanel({
                   type="button"
                   onClick={() => setFormat(f)}
                   className={[
-                    "rounded-full border px-3 py-1 text-[11px]",
+                    "rounded-full border px-3 py-1 text-[11px] font-semibold transition-colors",
                     isActive
                       ? "border-sky-500 bg-sky-500 text-white"
                       : "border-slate-300 bg-white text-slate-700 hover:border-sky-400 hover:text-sky-800",
@@ -133,10 +141,14 @@ export default function DownloadPanel({
         {/* サイズ別ボタン */}
         <div className="space-y-3">
           {/* Small */}
-          <Card variant="outline" padded className="border-slate-200 bg-slate-50">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
+          <Card
+            variant="outline"
+            padded
+            className="border-slate-200 bg-slate-50 text-xs text-slate-700"
+          >
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <div className="text-[11px] font-semibold text-slate-700">
+                <div className="text-[11px] font-semibold text-slate-800">
                   {smallSize
                     ? `Small（${smallSize.w}×${smallSize.h}：300dpi）`
                     : "Small（720px：300dpi）"}
@@ -169,10 +181,10 @@ export default function DownloadPanel({
           </Card>
 
           {/* HD */}
-          <Card variant="outline" padded>
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
+          <Card variant="outline" padded className="text-xs text-slate-700">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <div className="text-[11px] font-semibold text-slate-700">
+                <div className="text-[11px] font-semibold text-slate-800">
                   {hdSize
                     ? `HD（${hdSize.w}×${hdSize.h}：350dpi）`
                     : "HD（1080px：350dpi）"}
@@ -202,10 +214,10 @@ export default function DownloadPanel({
           </Card>
 
           {/* Original */}
-          <Card variant="outline" padded>
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
+          <Card variant="outline" padded className="text-xs text-slate-700">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <div className="text-[11px] font-semibold text-slate-700">
+                <div className="text-[11px] font-semibold text-slate-800">
                   {originalLabel}
                 </div>
                 <div className="text-[10px] text-amber-600">
@@ -262,12 +274,12 @@ function AdWatchModal({
   }, [seconds]);
 
   return (
-    <Card className="w-full max-w-sm">
+    <Card className="w-full max-w-sm text-xs text-slate-700">
       <div className="text-sm font-semibold text-slate-900">
         広告視聴（テスト）
       </div>
 
-      <p className="mt-2 text-xs text-slate-600">
+      <p className="mt-2 leading-relaxed">
         {!done ? (
           <>
             実際の広告は 5〜10秒ほどの動画になります。{" "}

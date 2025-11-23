@@ -1,12 +1,12 @@
 // =====================================
 // app/post/page.tsx
 // 素材アップロードページ（AI画像投稿）
-// テーマ連動＋Card レイアウト版
+// テーマ連動＋中央寄せ＋ドラッグ＆ドロップアップロード版
 // =====================================
 
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import Card from "@/components/ui/Card";
@@ -38,17 +38,52 @@ const getImageSize = (
 
 export default function PostPage() {
   const router = useRouter();
+
+  // 入力系 state
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [tags, setTags] = useState("");
+
+  // ファイル関連
   const [file, setFile] = useState<File | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+
+  // メッセージ・状態
   const [msg, setMsg] = useState<string>("");
   const [loading, setLoading] = useState(false);
 
-  // ファイル選択時の処理
+  // 隠し input をクリックするための ref
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  // 共通：ファイルが選ばれたときの処理（クリック／D&Dどちらからでも）
+  const handleFileSelected = (selected: File | null) => {
+    if (!selected) return;
+    setMsg("");
+    setFile(selected);
+  };
+
+  // input の change ハンドラ
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0] ?? null;
-    setFile(f);
+    handleFileSelected(f);
+  };
+
+  // ドラッグ＆ドロップ関連
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDragging(false);
+    const f = e.dataTransfer.files?.[0] ?? null;
+    handleFileSelected(f);
   };
 
   // フォーム送信
@@ -144,29 +179,64 @@ export default function PostPage() {
   };
 
   return (
-    <main className="min-h-screen bg-[var(--v-bg)] px-4 py-6">
-      <div className="mx-auto flex max-w-3xl flex-col gap-4">
+    <main className="min-h-screen bg-[var(--v-bg)] px-4 py-10">
+      {/* 画面中央寄せコンテナ */}
+      <div className="mx-auto flex max-w-3xl flex-col items-center gap-6">
         <h1 className="text-xl font-bold tracking-tight text-[var(--v-text)]">
           素材を投稿する
         </h1>
 
-        <Card as="section" className="max-w-xl">
+        {/* フォームカード */}
+        <Card as="section" className="w-full max-w-xl">
           <form onSubmit={handleSubmit} className="space-y-4">
+            {/* 画像アップロード（ドラッグ＆ドロップ＋クリック） */}
             <div>
               <label className="mb-1 block text-sm font-medium text-slate-700">
                 画像ファイル
               </label>
+
+              {/* ドロップゾーン */}
+              <div
+                className={[
+                  "flex cursor-pointer flex-col items-center justify-center gap-2 rounded-sm border-2 border-dashed px-4 py-10 text-center text-sm transition-colors",
+                  isDragging
+                    ? "border-sky-500 bg-sky-50"
+                    : "border-slate-300 bg-slate-50/60 hover:border-sky-400 hover:bg-slate-50",
+                ].join(" ")}
+                onClick={() => fileInputRef.current?.click()}
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
+              >
+                <div className="text-xs font-semibold text-slate-700">
+                  ここに画像をドラッグ＆ドロップ
+                </div>
+                <div className="text-[11px] text-slate-500">
+                  または <span className="font-semibold">クリックして選択</span>
+                </div>
+
+                {file && (
+                  <div className="mt-3 rounded bg-white/70 px-3 py-1 text-[11px] text-slate-700">
+                    選択中：{file.name}
+                  </div>
+                )}
+              </div>
+
+              {/* 実際の input（隠す） */}
               <input
+                ref={fileInputRef}
                 type="file"
                 accept="image/*"
                 onChange={handleFileChange}
-                className="block w-full text-sm text-[var(--v-text)]"
+                className="hidden"
               />
+
               <p className="mt-1 text-[11px] text-slate-500">
                 短辺720px以上の AI画像のみアップロードできます。
               </p>
             </div>
 
+            {/* タイトル */}
             <div>
               <label className="mb-1 block text-sm font-medium text-slate-700">
                 タイトル
@@ -179,6 +249,7 @@ export default function PostPage() {
               />
             </div>
 
+            {/* 説明 */}
             <div>
               <label className="mb-1 block text-sm font-medium text-slate-700">
                 説明
@@ -192,6 +263,7 @@ export default function PostPage() {
               />
             </div>
 
+            {/* タグ */}
             <div>
               <label className="mb-1 block text-sm font-medium text-slate-700">
                 タグ（カンマ区切り）
@@ -204,6 +276,7 @@ export default function PostPage() {
               />
             </div>
 
+            {/* 送信ボタン */}
             <div className="pt-2">
               <button
                 type="submit"
@@ -215,7 +288,7 @@ export default function PostPage() {
             </div>
 
             {msg && (
-              <p className="mt-2 text-sm text-slate-700 whitespace-pre-line">
+              <p className="mt-2 whitespace-pre-line text-sm text-slate-700">
                 {msg}
               </p>
             )}

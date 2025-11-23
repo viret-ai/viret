@@ -1,13 +1,17 @@
 // =====================================
 // app/login/page.tsx
 // ログイン（メール＋パスワード）
+// テーマ連動＋Card＋Typography＋Button版
 // =====================================
 
 "use client";
 
 import { useState } from "react";
-import { supabase } from "@/lib/supabase";
 import { useRouter } from "next/navigation";
+import { supabase } from "@/lib/supabase";
+import Card from "@/components/ui/Card";
+import Button from "@/components/ui/Button";
+import { typography } from "@/lib/theme";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -33,33 +37,63 @@ export default function LoginPage() {
   };
 
   return (
-    <main className="min-h-screen p-6">
-      <h1 className="text-xl font-bold mb-6">ログイン</h1>
+    <main className="min-h-screen bg-[var(--v-bg)] text-[var(--v-text)] px-4 py-10">
+      <div className="mx-auto flex max-w-md flex-col gap-6">
+        <h1 className={typography("h1")}>ログイン</h1>
 
-      <form onSubmit={handleLogin} className="space-y-4 max-w-md">
-        <input
-          className="w-full rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2"
-          placeholder="メールアドレス"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-        />
-        <input
-          className="w-full rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2"
-          placeholder="パスワード"
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-        />
+        <Card as="section">
+          <form onSubmit={handleLogin} className="space-y-4">
+            <div>
+              <label className={`${typography("body")} mb-1 block text-sm`}>
+                メールアドレス
+              </label>
+              <input
+                className="
+                  w-full rounded-md border border-black/10 dark:border-white/10
+                  bg-white/90 dark:bg-slate-900/70
+                  px-3 py-2 text-sm text-slate-900 dark:text-slate-100
+                  outline-none
+                  focus:border-sky-500 focus:ring-1 focus:ring-sky-300
+                "
+                placeholder="you@example.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+              />
+            </div>
 
-        <button
-          type="submit"
-          className="rounded-md bg-orange-500 px-4 py-2 text-sm font-semibold text-black"
-        >
-          ログイン
-        </button>
+            <div>
+              <label className={`${typography("body")} mb-1 block text-sm`}>
+                パスワード
+              </label>
+              <input
+                className="
+                  w-full rounded-md border border-black/10 dark:border-white/10
+                  bg-white/90 dark:bg-slate-900/70
+                  px-3 py-2 text-sm text-slate-900 dark:text-slate-100
+                  outline-none
+                  focus:border-sky-500 focus:ring-1 focus:ring-sky-300
+                "
+                placeholder="パスワード"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+            </div>
 
-        {msg && <p className="mt-3 text-sm">{msg}</p>}
-      </form>
+            <div className="pt-2 space-y-2">
+              <Button type="submit" className="w-full">
+                ログイン
+              </Button>
+
+              {msg && (
+                <p className={`${typography("caption")} text-red-600`}>
+                  {msg}
+                </p>
+              )}
+            </div>
+          </form>
+        </Card>
+      </div>
     </main>
   );
 }
