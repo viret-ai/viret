@@ -166,6 +166,7 @@ export default async function AssetDetailPage({ params }: PageProps) {
                 originalWidth={asset.width}
                 originalHeight={asset.height}
                 title={asset.title}
+                downloadUrl={originalUrl}
               />
 
               <Card className="space-y-3 text-xs text-slate-700">

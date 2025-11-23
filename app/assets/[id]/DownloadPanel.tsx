@@ -1,7 +1,7 @@
 // =====================================
 // app/assets/[id]/DownloadPanel.tsx
-// DLパネル（Small/HD/Original＋広告視聴テスト）
-// Card / Button / タイポ整理版
+// DLパネル（即ダウンロード発火版）
+// fetch + Blob + ダウンロード
 // =====================================
 
 "use client";
@@ -30,13 +30,30 @@ function calcResizedSize(
   w: number,
   h: number,
   targetShortEdge: number,
-): { w: number; h: number } {
+) {
   const short = Math.min(w, h);
   const scale = targetShortEdge / short;
   return {
     w: Math.round(w * scale),
     h: Math.round(h * scale),
   };
+}
+
+// =======================
+// ★ 即DL開始する関数
+// =======================
+async function triggerDownload(url: string, filename: string) {
+  const res = await fetch(url);
+  if (!res.ok) {
+    alert("ダウンロードに失敗しました");
+    return;
+  }
+  const blob = await res.blob();
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(a.href);
 }
 
 export default function DownloadPanel({
@@ -80,7 +97,7 @@ export default function DownloadPanel({
     ? `Original（${originalWidth}×${originalHeight}：350dpi）`
     : "Original（元サイズ：350dpi）";
 
-  const buildDownloadHref = (size: SizeOption) => {
+  const buildDownloadUrl = (size: SizeOption) => {
     const params = new URLSearchParams({
       size,
       format,
@@ -88,11 +105,19 @@ export default function DownloadPanel({
     return `/api/assets/${assetId}/download?${params.toString()}`;
   };
 
+  // ダウンロード共通ハンドラ
+  const handleDownload = async (size: SizeOption) => {
+    if (disabled) return;
+    const url = buildDownloadUrl(size);
+    const ext = format === "jpg" ? "jpg" : format;
+    const filename = `${title || "asset"}-${size}.${ext}`;
+    await triggerDownload(url, filename);
+  };
+
   return (
     <>
-      {/* 全体パネル */}
       <Card className="space-y-4 text-xs text-slate-700">
-        {/* Title ブロック */}
+        {/* Title */}
         <div>
           <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
             Title
@@ -104,14 +129,14 @@ export default function DownloadPanel({
           )}
         </div>
 
-        {/* Download ラベル */}
+        {/* Download */}
         <div>
           <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
             Download
           </div>
         </div>
 
-        {/* フォーマット選択 */}
+        {/* Format */}
         <div>
           <div className="mb-1 text-[11px] font-semibold text-slate-600">
             フォーマット
@@ -138,14 +163,10 @@ export default function DownloadPanel({
           </div>
         </div>
 
-        {/* サイズ別ボタン */}
+        {/* サイズボタン */}
         <div className="space-y-3">
           {/* Small */}
-          <Card
-            variant="outline"
-            padded
-            className="border-slate-200 bg-slate-50 text-xs text-slate-700"
-          >
+          <Card variant="outline" padded className="border-slate-200 bg-slate-50 text-xs text-slate-700">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <div className="text-[11px] font-semibold text-slate-800">
@@ -159,15 +180,14 @@ export default function DownloadPanel({
               </div>
 
               {smallUnlocked ? (
-                <a
-                  href={buildDownloadHref("sm")}
-                  onClick={(e) => {
-                    if (disabled) e.preventDefault();
-                  }}
-                  className="mt-1 inline-flex items-center justify-center rounded-full bg-emerald-600 px-3 py-1 text-[11px] font-semibold text-white hover:bg-emerald-500"
+                <button
+                  type="button"
+                  onClick={() => handleDownload("sm")}
+                  disabled={disabled}
+                  className="mt-1 inline-flex items-center justify-center rounded-full bg-emerald-600 px-3 py-1 text-[11px] font-semibold text-white hover:bg-emerald-500 disabled:bg-slate-300"
                 >
                   DL｜¥0
-                </a>
+                </button>
               ) : (
                 <button
                   type="button"
@@ -196,11 +216,10 @@ export default function DownloadPanel({
                 </div>
               </div>
 
-              <a
-                href={buildDownloadHref("hd")}
-                onClick={(e) => {
-                  if (hdDisabled) e.preventDefault();
-                }}
+              <button
+                type="button"
+                onClick={() => handleDownload("hd")}
+                disabled={hdDisabled}
                 className={[
                   "mt-1 inline-flex items-center justify-center rounded-full px-3 py-1 text-[11px] font-semibold",
                   hdDisabled
@@ -209,7 +228,7 @@ export default function DownloadPanel({
                 ].join(" ")}
               >
                 {hdAvailable ? "DL｜¥100" : "HD非対応"}
-              </a>
+              </button>
             </div>
           </Card>
 
@@ -225,15 +244,14 @@ export default function DownloadPanel({
                 </div>
               </div>
 
-              <a
-                href={buildDownloadHref("original")}
-                onClick={(e) => {
-                  if (disabled) e.preventDefault();
-                }}
-                className="mt-1 inline-flex items-center justify-center rounded-full bg-slate-800 px-3 py-1 text-[11px] font-semibold text-white hover:bg-slate-700"
+              <button
+                type="button"
+                disabled={disabled}
+                onClick={() => handleDownload("original")}
+                className="mt-1 inline-flex items-center justify-center rounded-full bg-slate-800 px-3 py-1 text-[11px] font-semibold text-white hover:bg-slate-700 disabled:bg-slate-300"
               >
                 DL｜¥200
-              </a>
+              </button>
             </div>
           </Card>
         </div>
@@ -254,6 +272,10 @@ export default function DownloadPanel({
   );
 }
 
+
+// -----------------------------------------
+// 広告視聴モーダル（そのまま）
+// -----------------------------------------
 function AdWatchModal({
   onClose,
   onComplete,
@@ -275,9 +297,7 @@ function AdWatchModal({
 
   return (
     <Card className="w-full max-w-sm text-xs text-slate-700">
-      <div className="text-sm font-semibold text-slate-900">
-        広告視聴（テスト）
-      </div>
+      <div className="text-sm font-semibold text-slate-900">広告視聴（テスト）</div>
 
       <p className="mt-2 leading-relaxed">
         {!done ? (
