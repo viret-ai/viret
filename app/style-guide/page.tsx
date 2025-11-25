@@ -1,10 +1,12 @@
 // =====================================
 // app/style-guide/page.tsx
-// タイポグラフィ＋角丸・カラー確認用スタイルガイド
+// タイポグラフィ＋角丸・カラー＋振込カレンダー確認用スタイルガイド
 // - lib/theme.ts の設定をそのまま可視化
 // - Light / Dark の文字スタイルと、色スウォッチを表示
+// - 出金スケジュール用カレンダー（5 / 15 / 25）の見え方を確認
 // =====================================
 
+import Calendar from "@/components/ui/Calendar";
 import {
   themeConfig,
   resolveRadiusClass,
@@ -211,7 +213,7 @@ export default function StyleGuidePage() {
                   <div className="mt-0.5 text-[11px] text-slate-500">
                     {c.usage}
                   </div>
-                  <div className="mt-1 text-[11px] font-mono text-slate-600">
+                  <div className="mt-1 font-mono text-[11px] text-slate-600">
                     {c.hex}
                   </div>
                 </div>
@@ -257,7 +259,8 @@ export default function StyleGuidePage() {
                       <div className="text-[11px] text-slate-500">
                         Font:{" "}
                         <span className="font-mono">{fontKey}</span> / Size:{" "}
-                        <span className="font-mono">{t.sizeClass}</span> / Weight:{" "}
+                        <span className="font-mono">{t.sizeClass}</span> /
+                        Weight:{" "}
                         <span className="font-mono">{t.weightClass}</span>
                       </div>
                     </div>
@@ -297,7 +300,6 @@ export default function StyleGuidePage() {
                 const fontKey =
                   t.font === "body" ? "bodyFont" : "headingFont";
 
-                // ダーク用は色だけ変える（クラスはそのまま）
                 const baseClasses = getTypographyClasses(spec.variant);
                 const colorClass =
                   spec.variant === "caption"
@@ -318,7 +320,8 @@ export default function StyleGuidePage() {
                       <div className="text-[11px] text-slate-400">
                         Font:{" "}
                         <span className="font-mono">{fontKey}</span> / Size:{" "}
-                        <span className="font-mono">{t.sizeClass}</span> / Weight:{" "}
+                        <span className="font-mono">{t.sizeClass}</span> /
+                        Weight:{" "}
                         <span className="font-mono">{t.weightClass}</span>
                       </div>
                     </div>
@@ -335,6 +338,30 @@ export default function StyleGuidePage() {
             </div>
           </section>
         </div>
+
+        {/* 振込カレンダーのテスト表示 */}
+        <section
+          className={`${cardRadiusClass} bg-[var(--v-card-bg)] p-4 shadow-sm`}
+        >
+          <h2
+            className={getTypographyClasses("h2")}
+            style={getTypographyStyle("h2")}
+          >
+            振込スケジュール カレンダー（5 / 15 / 25）
+          </h2>
+          <p
+            className="mt-1 text-xs text-slate-500"
+            style={getTypographyStyle("caption")}
+          >
+            lib/payoutSchedule.ts のロジックを使って、5 / 15 / 25 を基準とした
+            出金スケジュール（ラベル日・実振込日・締切日）を月ごとに可視化します。
+            青＝ラベル日、緑＝実際の振込日、赤＝締切日です。◀▶ で他の月も確認できます。
+          </p>
+
+          <div className="mt-4">
+            <Calendar initialYear={2025} initialMonth={11} />
+          </div>
+        </section>
       </div>
     </main>
   );
