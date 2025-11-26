@@ -1,35 +1,15 @@
 // =====================================
 // components/layout/Header.tsx
-// サイト共通ヘッダー（dev専用管理者ボタン＋StyleGuideリンク）
+// サイト共通ヘッダー（シンプルナビ）
+// - 認証状態は見ず、リンクだけを表示
 // =====================================
 
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabase";
-import Button from "@/components/ui/Button";
 import { typography } from "@/lib/theme";
 
 export default function Header() {
-  const router = useRouter();
-
-  const handleDevAdminLogin = async () => {
-    if (process.env.NODE_ENV !== "development") return;
-
-    const email = process.env.NEXT_PUBLIC_DEV_ADMIN_EMAIL || "";
-    const password = process.env.NEXT_PUBLIC_DEV_ADMIN_PASSWORD || "";
-
-    if (!email || !password) return;
-
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
-
-    if (!error) router.push("/dashboard");
-  };
-
   return (
     <header
       className="
@@ -45,30 +25,35 @@ export default function Header() {
       </Link>
 
       <nav className="flex items-center gap-4 text-xs text-slate-600">
-        <Link href="/assets" className="hover:text-sky-700">素材を探す</Link>
-        <Link href="/jobs" className="hover:text-sky-700">レタッチ案件</Link>
-        <Link href="/post" className="hover:text-sky-700">投稿する</Link>
-        <Link href="/subscribe" className="hover:text-sky-700">プラン</Link>
-        <Link href="/login" className="hover:text-sky-700">ログイン</Link>
+        <Link href="/assets" className="hover:text-sky-700">
+          素材を探す
+        </Link>
+        <Link href="/jobs" className="hover:text-sky-700">
+          レタッチ案件
+        </Link>
+        <Link href="/post" className="hover:text-sky-700">
+          投稿する
+        </Link>
+        <Link href="/subscribe" className="hover:text-sky-700">
+          プラン
+        </Link>
 
-        {/* 🔧 Style Guide（開発時のみ追加） */}
+        {/* 認証関連（シンプルに2つだけ） */}
+        <Link href="/login" className="hover:text-sky-700">
+          ログイン
+        </Link>
+        <Link href="/signup" className="hover:text-sky-700">
+          新規登録
+        </Link>
+
+        {/* 🔧 Style Guide（開発時のみ） */}
         {process.env.NODE_ENV === "development" && (
-          <Link href="/style-guide" className="hover:text-indigo-700 text-xs">
+          <Link
+            href="/style-guide"
+            className="text-xs hover:text-indigo-700"
+          >
             Style Guide
           </Link>
-        )}
-
-        {/* 🔧 devモード限定 管理者ログイン */}
-        {process.env.NODE_ENV === "development" && (
-          <Button
-            type="button"
-            variant="primary"
-            size="sm"
-            onClick={handleDevAdminLogin}
-            className="text-[10px] px-2 py-1"
-          >
-            管理者ログイン
-          </Button>
         )}
       </nav>
     </header>

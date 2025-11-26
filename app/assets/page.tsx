@@ -10,14 +10,17 @@ import { typography } from "@/lib/theme";
 
 type AssetRow = {
   id: string;
-  title: string;
-  preview_path: string;
+  title: string | null;
+  preview_path: string | null;
   created_at: string;
   status: string;
 };
 
 export default async function AssetsPage() {
-  const { data, error } = await supabaseServer
+  // 🔹 Next.js 16 用：Supabase クライアントを await で取得
+  const supabase = await supabaseServer();
+
+  const { data, error } = await supabase
     .from("assets")
     .select("id, title, preview_path, created_at, status")
     .eq("status", "public")
@@ -45,7 +48,9 @@ export default async function AssetsPage() {
         ) : (
           <div className="mt-4 flex flex-wrap gap-2">
             {assets.map((item) => {
-              const url = getAssetPublicUrl(item.preview_path);
+              const url = item.preview_path
+                ? getAssetPublicUrl(item.preview_path)
+                : null;
 
               return (
                 <Link
@@ -63,7 +68,7 @@ export default async function AssetsPage() {
                   {url && (
                     <img
                       src={url}
-                      alt={item.title}
+                      alt={item.title || "asset preview"}
                       className="
                         h-full w-auto max-w-none
                         object-contain
@@ -92,7 +97,7 @@ export default async function AssetsPage() {
                         drop-shadow-sm
                       "
                     >
-                      {item.title}
+                      {item.title || "タイトル未設定"}
                     </span>
                   </div>
                 </Link>

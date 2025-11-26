@@ -8,6 +8,7 @@
 // - ラベル日＝実振込日 → 斜めハーフ（／方向・左上が緑 / 右下が青）
 // - 最終行に翌月の日付をうっすら表示（同じルールで色分け）
 // - ◀▶ で前月 / 翌月に移動
+// - 翌月ラベルの締切日が当月末に食い込む場合も赤で表示
 // =====================================
 
 "use client";
@@ -29,6 +30,12 @@ function toDateString(y: number, m: number, d: number): string {
   const mm = String(m).padStart(2, "0");
   const dd = String(d).padStart(2, "0");
   return `${y}-${mm}-${dd}`;
+}
+
+// "YYYY-MM-DD" の year/month だけ取り出す
+function extractYearMonth(dateStr: string): { year: number; month: number } {
+  const [y, m] = dateStr.split("-").map((v) => Number(v));
+  return { year: y, month: m };
 }
 
 // ハーフ用の背景（／方向・左上：緑 / 右下：青）
@@ -68,7 +75,8 @@ export default function Calendar({ initialYear, initialMonth }: CalendarProps) {
     return getPayoutSchedulesForMonth(nextYear, nextMonth);
   }, [nextYear, nextMonth]);
 
-  // セット化（当月）
+  // ===== セット化（当月） =====
+
   const labelSet = useMemo(
     () => new Set(schedules.map((s) => s.labelDate)),
     [schedules]
@@ -82,7 +90,8 @@ export default function Calendar({ initialYear, initialMonth }: CalendarProps) {
     [schedules]
   );
 
-  // セット化（翌月）
+  // ===== セット化（翌月：翌月セル用） =====
+
   const nextLabelSet = useMemo(
     () => new Set(nextSchedules.map((s) => s.labelDate)),
     [nextSchedules]
@@ -96,7 +105,33 @@ export default function Calendar({ initialYear, initialMonth }: CalendarProps) {
     [nextSchedules]
   );
 
-  // カレンダーのベース情報
+  // ===== 当月に食い込む「翌月スケジュール分」 =====
+  // 例：5/5 の actual=5/1, deadline=4/30 → 4月カレンダーでは 4/30 を赤で表示したい。
+
+  const incomingActualSet = useMemo(() => {
+    const values: string[] = [];
+    for (const s of nextSchedules) {
+      const { year: y, month: m } = extractYearMonth(s.actualPayoutDate);
+      if (y === year && m === month) {
+        values.push(s.actualPayoutDate);
+      }
+    }
+    return new Set(values);
+  }, [nextSchedules, year, month]);
+
+  const incomingDeadlineSet = useMemo(() => {
+    const values: string[] = [];
+    for (const s of nextSchedules) {
+      const { year: y, month: m } = extractYearMonth(s.deadlineDate);
+      if (y === year && m === month) {
+        values.push(s.deadlineDate);
+      }
+    }
+    return new Set(values);
+  }, [nextSchedules, year, month]);
+
+  // ===== カレンダーのベース情報 =====
+
   const first = useMemo(() => new Date(year, month - 1, 1), [year, month]);
   const firstDay = first.getDay(); // 0(日)〜6(土)
   const last = useMemo(() => new Date(year, month, 0), [year, month]);
@@ -139,9 +174,14 @@ export default function Calendar({ initialYear, initialMonth }: CalendarProps) {
 
   function renderCurrentDay(day: number) {
     const dateStr = toDateString(year, month, day);
+
     const isLabel = labelSet.has(dateStr);
-    const isActual = actualSet.has(dateStr);
-    const isDeadline = deadlineSet.has(dateStr);
+
+    // 当月スケジュール + 翌月スケジュール（当月に食い込んでいる分）を合わせて判定
+    const isActual =
+      actualSet.has(dateStr) || incomingActualSet.has(dateStr);
+    const isDeadline =
+      deadlineSet.has(dateStr) || incomingDeadlineSet.has(dateStr);
 
     const isToday = dateStr === todayStr;
 
@@ -357,6 +397,8 @@ export default function Calendar({ initialYear, initialMonth }: CalendarProps) {
           ラベル日と実際の振込日が同じ日の場合は、
           セルが緑（左上）と青（右下）の斜めハーフ（「／」方向）で表示されます。
           最終行の翌月日付も、同じルールで薄めの色を使って表示しています。
+          また、翌月ラベルの締切日が当月に含まれる場合は、
+          当月末などに赤いセルとして表示されます。
           今日の日付はテキストと近い色の濃い枠線で強調表示しています。
         </div>
       </div>
