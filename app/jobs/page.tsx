@@ -1,124 +1,180 @@
 // =====================================
 // app/jobs/page.tsx
-// レタッチ案件一覧（仮置き版・ストック風カード）
-// - jobs テーブルから公開案件だけを取得して一覧表示
-// - 後で /jobs/[jobId] など詳細ページに差し替え予定
+// レタッチ依頼一覧ページ（投稿者ビュー）
+// - retouch_jobs を一覧表示
+// - payload から totalPins / totalPrice / pinSummaryText を読む
+// - 各行から：
+//   ・/jobs/[assetId] … 元のピン指定画面（編集用）
+//   ・/retouch-jobs/[id] … レタッチャー向け求人票（依頼詳細）
 // =====================================
 
 import Link from "next/link";
 import { supabaseServer } from "@/lib/supabase-server";
-import { typography } from "@/lib/theme";
+import Card from "@/components/ui/Card";
 
-type JobRow = {
+type RetouchJobRow = {
   id: string;
-  title: string;
-  description: string | null;
-  price_pins: number | null;
-  status: string;
+  asset_id: string;
+  payload: unknown;
   created_at: string;
+};
+
+type ListedJob = {
+  id: string;
+  assetId: string;
+  createdAt: string;
+  totalPins: number;
+  totalPrice: number;
+  summary: string;
 };
 
 export default async function JobsPage() {
   const supabase = await supabaseServer();
 
   const { data, error } = await supabase
-    .from("jobs")
-    .select("id, title, description, price_pins, status, created_at")
-    // 公開中だけにしておく（必要に応じて調整）
-    .in("status", ["open", "public", "published"])
+    .from("retouch_jobs")
+    .select("id, asset_id, payload, created_at")
     .order("created_at", { ascending: false });
 
-  if (error) {
-    console.error("[jobs] fetch error:", error);
-  }
+  const rows: RetouchJobRow[] = (data as RetouchJobRow[] | null) ?? [];
 
-  const jobs: JobRow[] = (data as JobRow[] | null) ?? [];
+  const jobs: ListedJob[] = rows.map((row) => {
+    const payload = (row.payload ?? {}) as any;
+
+    const totalPins: number =
+      typeof payload.totalPins === "number"
+        ? payload.totalPins
+        : typeof payload.total_pins === "number"
+        ? payload.total_pins
+        : 0;
+
+    const totalPrice: number =
+      typeof payload.totalPrice === "number"
+        ? payload.totalPrice
+        : typeof payload.total_price === "number"
+        ? payload.total_price
+        : 0;
+
+    const summary: string =
+      typeof payload.pinSummaryText === "string"
+        ? payload.pinSummaryText
+        : typeof payload.summary === "string"
+        ? payload.summary
+        : "";
+
+    return {
+      id: row.id,
+      assetId: row.asset_id,
+      createdAt: row.created_at,
+      totalPins,
+      totalPrice,
+      summary,
+    };
+  });
 
   return (
-    <main className="min-h-screen bg-[var(--v-bg)] text-[var(--v-text)] px-4 py-8">
-      <div className="mx-auto flex max-w-5xl flex-col gap-6">
-        <header className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <h1 className={typography("h1")}>レタッチ案件</h1>
-            <p className={typography("body") + " text-sm opacity-70"}>
-              募集中のレタッチ案件が並びます。詳細仕様や応募機能は後で追加予定です。
-            </p>
-          </div>
-
-          {/* 後でフィルタやソートをここに生やす想定 */}
-          <div className="text-xs text-slate-500">
-            {jobs.length > 0 ? `案件数：${jobs.length}件` : "案件なし"}
-          </div>
+    <main className="min-h-screen bg-[var(--v-bg)] px-4 py-6 text-[var(--v-text)]">
+      <div className="mx-auto flex max-w-5xl flex-col gap-4">
+        {/* タイトル */}
+        <header className="space-y-1">
+          <h1 className="text-xl font-semibold tracking-tight text-slate-900">
+            自分が出したレタッチ依頼一覧（テスト版）
+          </h1>
+          <p className="text-xs leading-relaxed text-slate-600">
+            これまでに作成したレタッチ依頼を一覧表示しています。
+            各行のボタンから「ピン指定をやり直す」または「レタッチャー向けの依頼詳細を見る」ことができます。
+          </p>
         </header>
 
-        {jobs.length === 0 ? (
-          <div className="mt-12 text-center">
-            <p className={typography("body") + " opacity-60"}>
-              まだ募集中のレタッチ案件がありません。
-            </p>
-          </div>
-        ) : (
-          <section className="grid gap-4 sm:grid-cols-2">
-            {jobs.map((job) => (
-              <Link
-                key={job.id}
-                href={`/jobs/${job.id}`}
-                className="
-                  flex flex-col justify-between
-                  rounded-md border border-black/5 bg-white/90
-                  px-4 py-3 text-left shadow-sm transition
-                  hover:border-sky-400 hover:shadow-md
-                  dark:border-white/10 dark:bg-slate-900/80
-                "
-              >
-                <div className="space-y-1.5">
-                  <h2
-                    className={typography("h3") + " line-clamp-2 text-sm sm:text-base"}
+        {error && (
+          <Card className="border border-red-300 bg-red-50 px-4 py-3 text-[11px] text-red-700">
+            <div className="font-semibold">retouch_jobs 取得エラー</div>
+            <pre className="mt-1 whitespace-pre-wrap break-all">
+              {JSON.stringify(error, null, 2)}
+            </pre>
+          </Card>
+        )}
+
+        {jobs.length === 0 && !error && (
+          <Card className="mt-4 text-xs text-slate-600">
+            まだレタッチ依頼が登録されていません。
+          </Card>
+        )}
+
+        {jobs.length > 0 && (
+          <Card className="overflow-hidden border border-slate-200 bg-white">
+            <table className="min-w-full border-collapse text-xs">
+              <thead className="bg-slate-50 text-[11px] text-slate-500">
+                <tr>
+                  <th className="border-b border-slate-200 px-3 py-2 text-left font-semibold">
+                    作成日
+                  </th>
+                  <th className="border-b border-slate-200 px-3 py-2 text-left font-semibold">
+                    概要
+                  </th>
+                  <th className="border-b border-slate-200 px-3 py-2 text-right font-semibold">
+                    ピン数
+                  </th>
+                  <th className="border-b border-slate-200 px-3 py-2 text-right font-semibold">
+                    概算金額
+                  </th>
+                  <th className="border-b border-slate-200 px-3 py-2 text-center font-semibold">
+                    操作
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {jobs.map((job) => (
+                  <tr
+                    key={job.id}
+                    className="transition-colors hover:bg-slate-50/80"
                   >
-                    {job.title}
-                  </h2>
+                    <td className="border-b border-slate-100 px-3 py-2 align-top text-[11px] text-slate-600">
+                      {new Date(job.createdAt).toLocaleString("ja-JP", {
+                        year: "numeric",
+                        month: "2-digit",
+                        day: "2-digit",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </td>
+                    <td className="border-b border-slate-100 px-3 py-2 align-top text-[11px] text-slate-800">
+                      {job.summary || (
+                        <span className="text-slate-400">
+                          内訳テキストなし
+                        </span>
+                      )}
+                    </td>
+                    <td className="border-b border-slate-100 px-3 py-2 align-top text-right font-mono text-[11px]">
+                      {job.totalPins}
+                    </td>
+                    <td className="border-b border-slate-100 px-3 py-2 align-top text-right font-mono text-[11px]">
+                      ¥{job.totalPrice.toLocaleString()}
+                    </td>
+                    <td className="border-b border-slate-100 px-3 py-2 align-top">
+                      <div className="flex flex-col items-stretch gap-1 text-[11px]">
+                        {/* 元のピン指定画面（依頼内容の編集） */}
+                        <Link
+                          href={`/jobs/${job.assetId}`}
+                          className="inline-flex items-center justify-center rounded border border-slate-300 bg-white px-2 py-1 text-slate-800 hover:bg-slate-50"
+                        >
+                          ピン指定画面を開く
+                        </Link>
 
-                  {job.description && (
-                    <p className="line-clamp-3 text-[11px] leading-snug text-slate-600 dark:text-slate-300">
-                      {job.description}
-                    </p>
-                  )}
-                </div>
-
-                <div className="mt-3 flex items-center justify-between text-[11px] text-slate-600 dark:text-slate-300">
-                  <div className="flex items-center gap-2">
-                    {/* ステータスバッジ（仮） */}
-                    <span
-                      className={`
-                        inline-flex items-center rounded-sm px-2 py-0.5
-                        text-[10px] font-semibold
-                        ${
-                          job.status === "open"
-                            ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
-                            : "bg-slate-100 text-slate-600 border border-slate-200"
-                        }
-                      `}
-                    >
-                      {job.status}
-                    </span>
-
-                    {/* ピン数（仮：null のときは「未設定」） */}
-                    <span>
-                      ピン報酬：{" "}
-                      {job.price_pins != null ? `${job.price_pins} pins` : "未設定"}
-                    </span>
-                  </div>
-
-                  <time
-                    dateTime={job.created_at}
-                    className="text-[10px] opacity-70"
-                  >
-                    {new Date(job.created_at).toLocaleDateString("ja-JP")}
-                  </time>
-                </div>
-              </Link>
-            ))}
-          </section>
+                        {/* レタッチャー向け求人票（依頼詳細） */}
+                        <Link
+                          href={`/retouch-jobs/${job.id}`}
+                          className="inline-flex items-center justify-center rounded border border-slate-800 bg-slate-900 px-2 py-1 text-white hover:bg-slate-800"
+                        >
+                          依頼詳細（求人票）を見る →
+                        </Link>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </Card>
         )}
       </div>
     </main>

@@ -3,6 +3,9 @@
 // 素材詳細ページ（Adobe Stock風レイアウト）
 // 左カラム：プレビュー＋説明（同じ幅で縦積み）
 // 右カラム：DLパネル＋メタ＋今後の拡張
+// - 「この素材をレタッチ依頼に出す」ボタンから
+//   /jobs/[assetId]（暫定）へ遷移
+//   ※ 後で jobs テーブルの jobId に差し替え予定
 // =====================================
 
 import Link from "next/link";
@@ -39,10 +42,13 @@ function formatJpDate(iso: string) {
 }
 
 export default async function AssetDetailPage({ params }: PageProps) {
+  // Next 16: params は Promise
   const { id } = await params;
   const assetId = id;
 
-  const { data, error } = await supabaseServer
+  const supabase = await supabaseServer();
+
+  const { data, error } = await supabase
     .from("assets")
     .select(
       [
@@ -67,14 +73,32 @@ export default async function AssetDetailPage({ params }: PageProps) {
 
   const asset = data as AssetRow | null;
 
+  // クリエイターの @username を取得
+  let creatorUsername: string | null = null;
+
+  if (asset?.owner_id) {
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("username")
+      .eq("id", asset.owner_id)
+      .maybeSingle();
+
+    creatorUsername = profile?.username ?? null;
+  }
+
+  const creatorLabel = creatorUsername
+    ? `@${creatorUsername}`
+    : asset?.owner_id
+    ? `creator_${asset.owner_id.slice(0, 8)}`
+    : "unknown_creator";
+
+  const creatorProfileUrl = creatorUsername
+    ? `/profile/${creatorUsername}`
+    : null;
+
   const previewUrl = asset ? getAssetPublicUrl(asset.preview_path) : null;
   const originalUrl =
     (asset && (getAssetPublicUrl(asset.original_path) || previewUrl)) || "";
-
-  const ownerLabel =
-    asset && asset.owner_id
-      ? `creator_${asset.owner_id.slice(0, 8)}`
-      : "unknown_creator";
 
   return (
     <main className="min-h-screen bg-[var(--v-bg)] px-4 py-6 text-[var(--v-text)]">
@@ -141,13 +165,13 @@ export default async function AssetDetailPage({ params }: PageProps) {
                 </div>
               </Card>
 
-              {/* 素材の説明（プレビューと同じ幅で直下に配置） */}
+              {/* 素材の説明 */}
               <Card>
                 <h2 className="text-sm font-semibold text-slate-900">
                   素材の説明
                 </h2>
                 {asset.description ? (
-                  <p className="mt-2 text-xs leading-relaxed text-slate-700 whitespace-pre-wrap">
+                  <p className="mt-2 whitespace-pre-wrap text-xs leading-relaxed text-slate-700">
                     {asset.description}
                   </p>
                 ) : (
@@ -158,7 +182,7 @@ export default async function AssetDetailPage({ params }: PageProps) {
               </Card>
             </div>
 
-            {/* ===== 右カラム：DLパネル＋メタ＋この素材からできること ===== */}
+            {/* ===== 右カラム：DLパネル＋メタ ===== */}
             <aside className="w-full max-w-md space-y-4 lg:w-80">
               <DownloadPanel
                 assetId={assetId}
@@ -166,7 +190,6 @@ export default async function AssetDetailPage({ params }: PageProps) {
                 originalWidth={asset.width}
                 originalHeight={asset.height}
                 title={asset.title}
-                downloadUrl={originalUrl}
               />
 
               <Card className="space-y-3 text-xs text-slate-700">
@@ -175,7 +198,16 @@ export default async function AssetDetailPage({ params }: PageProps) {
                     クリエイター
                   </div>
                   <div className="mt-1 text-sm font-medium text-slate-900">
-                    {ownerLabel}
+                    {creatorProfileUrl ? (
+                      <Link
+                        href={creatorProfileUrl}
+                        className="text-sky-700 underline"
+                      >
+                        {creatorLabel}
+                      </Link>
+                    ) : (
+                      creatorLabel
+                    )}
                   </div>
                 </div>
 
@@ -212,9 +244,22 @@ export default async function AssetDetailPage({ params }: PageProps) {
                   この素材からできること
                 </h2>
                 <p className="mt-2 leading-relaxed">
-                  将来的には、ここに「このAI画像をレタッチ依頼に出す」ボタンや、
-                  同じクリエイターの別作品、似たタグの素材などを表示する予定です。
+                  この素材をもとに、レタッチャーに細かい修正や加工を依頼できます。
+                  ピンを置いてほしい箇所を指定し、依頼内容をテキストで補足してください。
                 </p>
+
+                <div className="mt-3">
+                  <Link
+                    href={`/jobs/${assetId}`}
+                    className="inline-flex w-full items-center justify-center rounded bg-slate-900 px-3 py-2 text-[11px] font-semibold text-white hover:bg-slate-800"
+                  >
+                    この素材をレタッチ依頼に出す →
+                  </Link>
+                  <p className="mt-1 text-[10px] leading-relaxed text-slate-500">
+                    ※ 現時点では UI プレビュー用の画面に遷移します。
+                    後日、実際の依頼作成フロー（jobsレコード作成）と連携予定です。
+                  </p>
+                </div>
               </Card>
             </aside>
           </section>

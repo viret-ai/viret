@@ -1,12 +1,11 @@
 // =====================================
 // app/api/assets/[id]/download/route.ts
 // 素材ダウンロード用 API（サイズ・フォーマット指定）
-// - Small:  短辺720px / 300dpi
-// - HD:     短辺1080px / 350dpi
+// - Small:    短辺720px / 300dpi
+// - HD:       短辺1080px / 350dpi
 // - Original: リサイズなし / 350dpi（DPIメタのみ）
 // - JPG / PNG / WebP 変換対応
-//   ※ sharp.withMetadata({ density }) で DPI を明示
-//   ※ 一部アプリでは JPG/WebP の DPI 表示が 72 固定のこともある点に注意
+// - XMPメタデータに「assetId + @creator」を埋め込む
 // =====================================
 
 import { NextRequest, NextResponse } from "next/server";
@@ -23,7 +22,6 @@ type SizeOption = "sm" | "hd" | "original";
 type FormatOption = "jpg" | "png" | "webp";
 
 export async function GET(req: NextRequest, context: RouteParams) {
-  // Next.js 16 以降は params が Promise なので await 必須
   const { id } = await context.params;
   const assetId = id;
 
@@ -39,14 +37,17 @@ export async function GET(req: NextRequest, context: RouteParams) {
     ? (formatParam as FormatOption)
     : "jpg";
 
+  const supabase = await supabaseServer();
+
   // =====================================
   // 1) DB からアセット情報取得
   // =====================================
-  const { data, error } = await supabaseServer
+  const { data, error } = await supabase
     .from("assets")
     .select(
       [
         "id",
+        "owner_id",
         "title",
         "original_path",
         "preview_path",
@@ -61,18 +62,47 @@ export async function GET(req: NextRequest, context: RouteParams) {
     return new NextResponse("Asset not found", { status: 404 });
   }
 
-  const originalPath = (data as any).original_path as string | null;
-  const previewPath = (data as any).preview_path as string | null;
+  const asset = data as {
+    id: string;
+    owner_id: string | null;
+    title: string | null;
+    original_path: string | null;
+    preview_path: string | null;
+    width: number | null;
+    height: number | null;
+  };
+
+  const originalPath = asset.original_path;
+  const previewPath = asset.preview_path;
   const sourcePath = originalPath || previewPath;
 
   if (!sourcePath) {
     return new NextResponse("File path not available", { status: 404 });
   }
 
+  // クリエイターの @username を取得
+  let creatorUsername: string | null = null;
+
+  if (asset.owner_id) {
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("username")
+      .eq("id", asset.owner_id)
+      .maybeSingle();
+
+    creatorUsername = profile?.username ?? null;
+  }
+
+  const creatorTag = creatorUsername
+    ? `@${creatorUsername}`
+    : asset.owner_id
+    ? `creator_${asset.owner_id.slice(0, 8)}`
+    : "unknown_creator";
+
   // =====================================
   // 2) Storage から元画像を取得
   // =====================================
-  const { data: fileRes, error: dlError } = await supabaseServer.storage
+  const { data: fileRes, error: dlError } = await supabase.storage
     .from("assets")
     .download(sourcePath);
 
@@ -87,8 +117,8 @@ export async function GET(req: NextRequest, context: RouteParams) {
   // =====================================
   // 3) 元画像サイズを決定（DB優先／なければ metadata）
   // =====================================
-  let width = (data as any).width as number | null;
-  let height = (data as any).height as number | null;
+  let width = asset.width;
+  let height = asset.height;
 
   const meta = await sharp(inputBuffer).metadata();
 
@@ -96,11 +126,14 @@ export async function GET(req: NextRequest, context: RouteParams) {
     if (meta.width && meta.height) {
       width = meta.width;
       height = meta.height;
-      // 古いレコード用に width/height を backfill（エラーは無視）
-      await supabaseServer
-        .from("assets")
-        .update({ width, height })
-        .eq("id", assetId);
+      try {
+        await supabase
+          .from("assets")
+          .update({ width, height })
+          .eq("id", assetId);
+      } catch {
+        // backfill 失敗は致命的でないので無視
+      }
     }
   }
 
@@ -116,14 +149,8 @@ export async function GET(req: NextRequest, context: RouteParams) {
   const shortEdge = Math.min(originalWidth, originalHeight);
 
   // =====================================
-  // 4) sharp パイプライン構築
-  //    - サイズ別リサイズ（アップスケールなし）
-  //    - DPI（density）を明示
-  //    - フォーマットごとに出力設定
+  // 4) リサイズ＋メタデータ（XMP込み）＋フォーマット変換
   // =====================================
-  let pipeline = sharp(inputBuffer);
-
-  // 目標ピクセルサイズを決定（shortEdge ベース）
   let targetWidth = originalWidth;
   let targetHeight = originalHeight;
 
@@ -137,20 +164,35 @@ export async function GET(req: NextRequest, context: RouteParams) {
     }
   }
 
-  // リサイズ（必要な場合のみ）。withoutEnlargement でアップスケール防止。
-  if (targetWidth !== originalWidth || targetHeight !== originalHeight) {
-    pipeline = pipeline.resize(targetWidth, targetHeight, {
-      fit: "inside",
-      withoutEnlargement: true,
-    });
-  }
+  let pipeline = sharp(inputBuffer).resize(targetWidth, targetHeight, {
+    fit: "inside",
+    withoutEnlargement: true,
+  });
 
   // DPI設定：Small=300dpi, HD/Original=350dpi
   const targetDpi = size === "sm" ? 300 : 350;
 
-  // メタデータ（density）付与
+  // XMP メタデータを組み立て
+  const descriptionText = `Viret asset ID: ${assetId} / creator: ${creatorTag}`;
+  const xmp = `
+<x:xmpmeta xmlns:x="adobe:ns:meta/">
+  <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+    <rdf:Description xmlns:dc="http://purl.org/dc/elements/1.1/"
+                     xmlns:xmpRights="http://ns.adobe.com/xap/1.0/rights/">
+      <dc:description>
+        <rdf:Alt>
+          <rdf:li xml:lang="x-default">${descriptionText}</rdf:li>
+        </rdf:Alt>
+      </dc:description>
+      <xmpRights:Marked>True</xmpRights:Marked>
+    </rdf:Description>
+  </rdf:RDF>
+</x:xmpmeta>`.trim();
+
+  // メタデータ付与（density + XMP）
   pipeline = pipeline.withMetadata({
     density: targetDpi,
+    xmp: Buffer.from(xmp, "utf8"),
   });
 
   // フォーマット変換
@@ -186,8 +228,8 @@ export async function GET(req: NextRequest, context: RouteParams) {
 
   // ファイル名を安全な形に整形
   const safeTitle =
-    typeof data.title === "string" && data.title.trim().length > 0
-      ? data.title
+    typeof asset.title === "string" && asset.title.trim().length > 0
+      ? asset.title
           .trim()
           .slice(0, 64)
           .replace(/[/\\:*?"<>|]/g, "_")
