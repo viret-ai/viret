@@ -15,6 +15,14 @@ export type PinPricingRule = {
   description?: string;  // 任意の説明文（ヘルプなどに利用）
 };
 
+// ピン実体（画像上に置かれる1本分）
+export type PlacedPin = {
+  id: string;
+  type: PinType;
+  x: number; // 0〜1 の割合（画像の左端を0, 右端を1）
+  y: number; // 0〜1 の割合（画像の上端を0, 下端を1）
+};
+
 // ラベルだけ欲しいとき用
 export const PIN_TYPE_LABELS: Record<PinType, string> = {
   hand: "手・指の修正",
@@ -65,6 +73,34 @@ export const PIN_PRICING_BY_TYPE: Record<PinType, PinPricingRule> =
     },
     {} as Record<PinType, PinPricingRule>,
   );
+
+// ==============================
+// ここから下は「既存コード互換」エイリアス
+// （RetouchRequestEditor / confirm で使う想定）
+// ==============================
+
+// Editor 側が期待している形：{ type, label, price, colorClass }
+export const PIN_DEFS = PIN_PRICING_TABLE.map((rule) => ({
+  type: rule.type,
+  label: rule.label,
+  price: rule.unitPrice,
+  colorClass: rule.colorClass,
+}));
+
+export const PIN_DEF_BY_TYPE: Record<
+  PinType,
+  { type: PinType; label: string; price: number; colorClass: string }
+> = PIN_DEFS.reduce(
+  (acc, def) => {
+    acc[def.type] = def;
+    return acc;
+  },
+  {} as Record<PinType, { type: PinType; label: string; price: number; colorClass: string }>,
+);
+
+// ==============================
+// 料金計算ロジック
+// ==============================
 
 // 型：内訳の1行分
 export type PinPricingBreakdownRow = {
@@ -164,12 +200,11 @@ export function calcPinPricing<T extends { type: PinType }>(
 // });
 
 // 4) RetouchRequestEditor などで使うときは、
-//    import { PIN_PRICING_TABLE, PIN_PRICING_BY_TYPE } from "@/lib/pinPricing";
+//    import { PIN_PRICING_TABLE, PIN_PRICING_BY_TYPE, PIN_DEFS, PIN_DEF_BY_TYPE } from "@/lib/pins";
 //    として、
-//    - ボタン定義      → PIN_PRICING_TABLE をそのまま map
+//    - ボタン定義      → PIN_PRICING_TABLE or PIN_DEFS をそのまま map
 //    - ピン描画の色    → rule.colorClass
 //    - 料金計算・内訳 → calcPinPricing(pins)
 //    を使えば、新しいピン種別も自動で反映されます。
 
 */
-

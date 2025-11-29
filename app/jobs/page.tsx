@@ -1,11 +1,9 @@
 // =====================================
 // app/jobs/page.tsx
-// レタッチ依頼一覧ページ（投稿者ビュー）
-// - retouch_jobs を一覧表示
-// - payload から totalPins / totalPrice / pinSummaryText を読む
-// - 各行から：
-//   ・/jobs/[assetId] … 元のピン指定画面（編集用）
-//   ・/retouch-jobs/[id] … レタッチャー向け求人票（依頼詳細）
+// レタッチ依頼一覧ページ（公開掲示板ビュー）
+// - retouch_jobs を時系列で一覧表示（全ユーザー閲覧可）
+// - payload 内の totalPins / totalPrice / pinSummaryText などを使用
+// - 各カードから /retouch-jobs/[id] へ遷移（再編集リンクは持たない）
 // =====================================
 
 import Link from "next/link";
@@ -23,9 +21,10 @@ type ListedJob = {
   id: string;
   assetId: string;
   createdAt: string;
+  title: string;
+  summary: string;
   totalPins: number;
   totalPrice: number;
-  summary: string;
 };
 
 export default async function JobsPage() {
@@ -41,20 +40,13 @@ export default async function JobsPage() {
   const jobs: ListedJob[] = rows.map((row) => {
     const payload = (row.payload ?? {}) as any;
 
-    const totalPins: number =
-      typeof payload.totalPins === "number"
-        ? payload.totalPins
-        : typeof payload.total_pins === "number"
-        ? payload.total_pins
-        : 0;
+    // タイトル（assets 側のタイトルを payload に入れておいた想定）
+    const title: string =
+      typeof payload.assetTitle === "string" && payload.assetTitle.trim().length > 0
+        ? payload.assetTitle
+        : "タイトル未設定の依頼";
 
-    const totalPrice: number =
-      typeof payload.totalPrice === "number"
-        ? payload.totalPrice
-        : typeof payload.total_price === "number"
-        ? payload.total_price
-        : 0;
-
+    // 内訳テキスト
     const summary: string =
       typeof payload.pinSummaryText === "string"
         ? payload.pinSummaryText
@@ -62,13 +54,32 @@ export default async function JobsPage() {
         ? payload.summary
         : "";
 
+    // ピン数：payload.totalPins / total_pins / pins.length の順でフォールバック
+    const totalPins: number =
+      typeof payload.totalPins === "number"
+        ? payload.totalPins
+        : typeof payload.total_pins === "number"
+        ? payload.total_pins
+        : Array.isArray(payload.pins)
+        ? payload.pins.length
+        : 0;
+
+    // 概算金額：payload.totalPrice / total_price のどちらか
+    const totalPrice: number =
+      typeof payload.totalPrice === "number"
+        ? payload.totalPrice
+        : typeof payload.total_price === "number"
+        ? payload.total_price
+        : 0;
+
     return {
       id: row.id,
       assetId: row.asset_id,
       createdAt: row.created_at,
+      title,
+      summary,
       totalPins,
       totalPrice,
-      summary,
     };
   });
 
@@ -78,11 +89,12 @@ export default async function JobsPage() {
         {/* タイトル */}
         <header className="space-y-1">
           <h1 className="text-xl font-semibold tracking-tight text-slate-900">
-            自分が出したレタッチ依頼一覧（テスト版）
+            レタッチ依頼掲示板（テスト版）
           </h1>
           <p className="text-xs leading-relaxed text-slate-600">
-            これまでに作成したレタッチ依頼を一覧表示しています。
-            各行のボタンから「ピン指定をやり直す」または「レタッチャー向けの依頼詳細を見る」ことができます。
+            すべてのユーザーに公開されているレタッチ依頼の一覧です。
+            各カードから依頼の詳細ページに移動し、「手を挙げる」ボタンから応募できます。
+            いったん送信された依頼内容は、この画面からは編集できません。
           </p>
         </header>
 
@@ -95,41 +107,27 @@ export default async function JobsPage() {
           </Card>
         )}
 
-        {jobs.length === 0 && !error && (
-          <Card className="mt-4 text-xs text-slate-600">
-            まだレタッチ依頼が登録されていません。
+        {!error && jobs.length === 0 && (
+          <Card className="mt-4 border border-dashed border-slate-300 bg-white px-4 py-6 text-center text-xs text-slate-600">
+            現在、公開中のレタッチ依頼はありません。
+            <br />
+            画像詳細ページから新しく依頼を作成すると、ここに一覧表示されます。
           </Card>
         )}
 
-        {jobs.length > 0 && (
-          <Card className="overflow-hidden border border-slate-200 bg-white">
-            <table className="min-w-full border-collapse text-xs">
-              <thead className="bg-slate-50 text-[11px] text-slate-500">
-                <tr>
-                  <th className="border-b border-slate-200 px-3 py-2 text-left font-semibold">
-                    作成日
-                  </th>
-                  <th className="border-b border-slate-200 px-3 py-2 text-left font-semibold">
-                    概要
-                  </th>
-                  <th className="border-b border-slate-200 px-3 py-2 text-right font-semibold">
-                    ピン数
-                  </th>
-                  <th className="border-b border-slate-200 px-3 py-2 text-right font-semibold">
-                    概算金額
-                  </th>
-                  <th className="border-b border-slate-200 px-3 py-2 text-center font-semibold">
-                    操作
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {jobs.map((job) => (
-                  <tr
-                    key={job.id}
-                    className="transition-colors hover:bg-slate-50/80"
-                  >
-                    <td className="border-b border-slate-100 px-3 py-2 align-top text-[11px] text-slate-600">
+        {!error && jobs.length > 0 && (
+          <div className="grid gap-3 md:grid-cols-2">
+            {jobs.map((job) => (
+              <Card
+                key={job.id}
+                className="flex h-full flex-col justify-between border border-slate-200 bg-white p-4 text-xs text-slate-800"
+              >
+                <div className="space-y-1.5">
+                  <div className="flex items-start justify-between gap-2">
+                    <h2 className="line-clamp-2 text-sm font-semibold text-slate-900">
+                      {job.title}
+                    </h2>
+                    <div className="text-right text-[10px] text-slate-500">
                       {new Date(job.createdAt).toLocaleString("ja-JP", {
                         year: "numeric",
                         month: "2-digit",
@@ -137,44 +135,51 @@ export default async function JobsPage() {
                         hour: "2-digit",
                         minute: "2-digit",
                       })}
-                    </td>
-                    <td className="border-b border-slate-100 px-3 py-2 align-top text-[11px] text-slate-800">
-                      {job.summary || (
-                        <span className="text-slate-400">
-                          内訳テキストなし
-                        </span>
-                      )}
-                    </td>
-                    <td className="border-b border-slate-100 px-3 py-2 align-top text-right font-mono text-[11px]">
-                      {job.totalPins}
-                    </td>
-                    <td className="border-b border-slate-100 px-3 py-2 align-top text-right font-mono text-[11px]">
-                      ¥{job.totalPrice.toLocaleString()}
-                    </td>
-                    <td className="border-b border-slate-100 px-3 py-2 align-top">
-                      <div className="flex flex-col items-stretch gap-1 text-[11px]">
-                        {/* 元のピン指定画面（依頼内容の編集） */}
-                        <Link
-                          href={`/jobs/${job.assetId}`}
-                          className="inline-flex items-center justify-center rounded border border-slate-300 bg-white px-2 py-1 text-slate-800 hover:bg-slate-50"
-                        >
-                          ピン指定画面を開く
-                        </Link>
+                    </div>
+                  </div>
 
-                        {/* レタッチャー向け求人票（依頼詳細） */}
-                        <Link
-                          href={`/retouch-jobs/${job.id}`}
-                          className="inline-flex items-center justify-center rounded border border-slate-800 bg-slate-900 px-2 py-1 text-white hover:bg-slate-800"
-                        >
-                          依頼詳細（求人票）を見る →
-                        </Link>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </Card>
+                  {job.summary ? (
+                    <p className="line-clamp-3 text-[11px] text-slate-700">
+                      {job.summary}
+                    </p>
+                  ) : (
+                    <p className="text-[11px] text-slate-400">
+                      詳細な内訳テキストは登録されていません。
+                    </p>
+                  )}
+
+                  <div className="mt-2 flex items-center justify-between text-[11px]">
+                    <div className="flex items-center gap-3">
+                      <span className="inline-flex items-center gap-1">
+                        <span className="text-slate-500">ピン数</span>
+                        <span className="font-mono text-slate-900">
+                          {job.totalPins}
+                        </span>
+                      </span>
+                      <span className="inline-flex items-center gap-1">
+                        <span className="text-slate-500">概算</span>
+                        <span className="font-mono text-slate-900">
+                          ¥{job.totalPrice.toLocaleString()}
+                        </span>
+                      </span>
+                    </div>
+                    <span className="rounded-full bg-slate-900 px-2 py-0.5 text-[10px] font-mono text-white">
+                      JOB
+                    </span>
+                  </div>
+                </div>
+
+                <div className="mt-3 flex justify-end">
+                  <Link
+                    href={`/retouch-jobs/${job.id}`}
+                    className="inline-flex items-center justify-center rounded border border-slate-800 bg-slate-900 px-3 py-1.5 text-[11px] font-semibold text-white hover:bg-slate-800"
+                  >
+                    依頼の詳細を見る →
+                  </Link>
+                </div>
+              </Card>
+            ))}
+          </div>
         )}
       </div>
     </main>

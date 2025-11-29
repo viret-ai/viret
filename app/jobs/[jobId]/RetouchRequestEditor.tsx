@@ -4,12 +4,12 @@
 // - lib/pins の定義を利用してピン一覧・色・単価を表示
 // - 集計も lib/pins の定義ベースで計算
 // - 「決定」でドラフトを sessionStorage に保存 → /jobs/[jobId]/confirm へ
+// - 「この依頼をキャンセルして素材詳細に戻る」で draft を削除
 // =====================================
 
 "use client";
 
-import { useMemo, useState, MouseEvent } from "react";
-import Link from "next/link";
+import { useEffect, useMemo, useState, MouseEvent } from "react";
 import { useRouter } from "next/navigation";
 import { PIN_DEFS, PIN_DEF_BY_TYPE } from "@/lib/pins";
 import type { PinType, PlacedPin } from "@/lib/pins";
@@ -53,6 +53,24 @@ export default function RetouchRequestEditor({
   const [showPins, setShowPins] = useState(true);
   const [note, setNote] = useState("");
 
+  // 初期表示時に sessionStorage からドラフトを復元
+  useEffect(() => {
+    try {
+      const raw = window.sessionStorage.getItem(
+        `viret-retouch-draft-${jobId}`,
+      );
+      if (!raw) return;
+
+      const parsed = JSON.parse(raw) as RetouchDraft;
+      if (parsed.jobId !== jobId) return;
+
+      setPins(parsed.pins ?? []);
+      setNote(parsed.note ?? "");
+    } catch (e) {
+      console.error("failed to restore retouch draft", e);
+    }
+  }, [jobId]);
+
   // 合計情報を集計（lib/pins の単価を使用）
   const { countsByType, totalPins, totalPrice, pinSummaryText } = useMemo(() => {
     const map: Partial<Record<PinType, number>> = {};
@@ -62,8 +80,14 @@ export default function RetouchRequestEditor({
     for (const p of pins) {
       map[p.type] = (map[p.type] ?? 0) + 1;
       const def = PIN_DEF_BY_TYPE[p.type];
+      const unit =
+        def && typeof def.unitPrice === "number"
+          ? def.unitPrice
+          : // 互換用：古い定義で price を使っている場合
+            ((def as any)?.price ?? 0);
+
       sumPins += 1;
-      sumPrice += def?.price ?? 0;
+      sumPrice += unit;
     }
 
     const parts: string[] = [];
@@ -127,19 +151,26 @@ export default function RetouchRequestEditor({
         previewUrl,
       };
 
-      // ブラウザ側の sessionStorage に保存
       window.sessionStorage.setItem(
         `viret-retouch-draft-${jobId}`,
         JSON.stringify(draft),
       );
 
-      // 確認画面へ遷移
       router.push(`/jobs/${jobId}/confirm`);
     } catch (e) {
       console.error("failed to save retouch draft", e);
-      // 失敗してもとりあえずはそのまま遷移（ドラフトなしとして扱われる）
       router.push(`/jobs/${jobId}/confirm`);
     }
+  };
+
+  // 「この依頼をキャンセルして素材詳細に戻る」
+  const handleCancelRequest = () => {
+    try {
+      window.sessionStorage.removeItem(`viret-retouch-draft-${jobId}`);
+    } catch (e) {
+      console.error("failed to clear retouch draft", e);
+    }
+    router.push(`/assets/${assetId}`);
   };
 
   return (
@@ -147,7 +178,7 @@ export default function RetouchRequestEditor({
       {/* 上段：3カラムレイアウト（左：ピン一覧 / 中央：画像 / 右：ビュー設定） */}
       <section className="flex flex-col gap-4 lg:grid lg:grid-cols-[minmax(220px,260px)_minmax(0,1fr)_minmax(220px,260px)] lg:items-start">
         {/* 左：ピンメニュー */}
-        <aside className="space-y-4 rounded border border-slate-200 bg白 p-3 text-xs text-slate-700">
+        <aside className="space-y-4 rounded border border-slate-200 bg-white p-3 text-xs text-slate-700">
           <h2 className="text-sm font-semibold text-slate-900">
             修正内容ピン一覧
           </h2>
@@ -276,6 +307,12 @@ export default function RetouchRequestEditor({
                 const left = `${pin.x * 100}%`;
                 const top = `${pin.y * 100}%`;
 
+                // 価格の互換取得（unitPrice 優先・なければ price）
+                const unitPrice =
+                  typeof def.unitPrice === "number"
+                    ? def.unitPrice
+                    : ((def as any).price ?? 0);
+
                 return (
                   <button
                     key={pin.id}
@@ -302,7 +339,7 @@ export default function RetouchRequestEditor({
 
                     {/* 吹き出し */}
                     <div className="mt-1 hidden whitespace-nowrap rounded bg-black/80 px-2 py-1 text-[10px] text-white shadow group-hover:block">
-                      {def.label} ¥{def.price.toLocaleString()}
+                      {def.label} ¥{unitPrice.toLocaleString()}
                       <span className="ml-1 text-slate-300">
                         (右クリックで削除)
                       </span>
@@ -442,19 +479,20 @@ export default function RetouchRequestEditor({
           value={note}
           onChange={(e) => setNote(e.target.value)}
           rows={5}
-          className="mt-1 w-full resize-y rounded border border-slate-300 bg-slate-50 px-3 py-2 text-xs outline-none focus:border-slate-500 focus:bg-white focus:ring-1 focus:ring-slate-500"
+          className="mt-1 w-full resize-y rounded border border-slate-300 bg-slate-50 px-3 py-2 text-xs outline-none focus:border-slate-500 focus:bg白 focus:ring-1 focus:ring-slate-500"
           placeholder="例：背景の白い部分は透過して、小物は謎の猫のような生物を消して、ぶら下がっている装飾は星型に変更してください…など"
         />
       </section>
 
       {/* フッター：操作ボタン */}
       <section className="mt-3 flex flex-col gap-3 pb-4 sm:flex-row sm:justify-between">
-        <Link
-          href={`/assets/${assetId}`}
+        <button
+          type="button"
+          onClick={handleCancelRequest}
           className="inline-flex items-center justify-center rounded border border-slate-400 bg-white px-4 py-2 text-xs font-semibold text-slate-800 hover:bg-slate-50"
         >
           ← この依頼をキャンセルして素材詳細に戻る
-        </Link>
+        </button>
 
         <button
           type="button"

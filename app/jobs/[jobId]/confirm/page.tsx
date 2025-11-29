@@ -4,6 +4,12 @@
 // - sessionStorage からドラフト情報を読み込んで表示
 // - lib/pins から単価情報を読み出して内訳を再計算
 // - 送信ボタンで retouch_jobs に 1 行 INSERT
+//   ※ retouch_jobs 側カラム：
+//     - note              : text
+//     - total_pins        : integer
+//     - total_price       : integer
+//     - pin_summary_text  : text
+//   ※ payload にはピン座標＋最低限のメタだけを保存
 // =====================================
 
 "use client";
@@ -89,6 +95,7 @@ export default function JobRetouchConfirmPage() {
         counts[p.type] = { count: 0, subtotal: 0 };
       }
       counts[p.type]!.count += 1;
+      // def.price は pins.ts 側でエイリアス済み想定
       counts[p.type]!.subtotal += def.price;
     }
 
@@ -129,22 +136,39 @@ export default function JobRetouchConfirmPage() {
       // ログイン中ユーザーを取得（owner_id 用）
       const {
         data: { user },
+        error: userError,
       } = await supabase.auth.getUser();
+
+      if (userError) {
+        console.error("getUser error", userError);
+        setSubmitError(
+          "ログイン情報の取得に失敗しました。再度ログインし直してください。",
+        );
+        setSubmitting(false);
+        return;
+      }
+
+      // DB に保存する payload（ピン座標＋最低限のメタだけ）
+      const payload = {
+        pins: draft.pins ?? [],
+        jobId: draft.jobId,
+        assetId: draft.assetId ?? assetId,
+        assetTitle: draft.assetTitle,
+        previewUrl: draft.previewUrl,
+      };
 
       const { error } = await supabase.from("retouch_jobs").insert({
         asset_id: assetId,
         owner_id: user?.id ?? null,
+
+        // 数値やテキストはカラムとして持つ
         note: draft.note || null,
         total_pins: breakdown.totalPins,
         total_price: breakdown.totalPrice,
-        payload: {
-          jobId: draft.jobId,
-          pins: draft.pins,
-          pinSummaryText: draft.pinSummaryText,
-          assetId: draft.assetId,
-          assetTitle: draft.assetTitle,
-          previewUrl: draft.previewUrl,
-        },
+        pin_summary_text: draft.pinSummaryText || null,
+
+        // ピン座標などの詳細は JSON payload に格納
+        payload,
       });
 
       if (error) {
@@ -287,9 +311,7 @@ export default function JobRetouchConfirmPage() {
                         key={line.type}
                         className="flex items-center justify-between text-[11px]"
                       >
-                        <span className="truncate">
-                          {line.label}
-                        </span>
+                        <span className="truncate">{line.label}</span>
                         <span className="font-mono">
                           ¥{line.unitPrice.toLocaleString()} ×
                           {line.count} = ¥{line.subtotal.toLocaleString()}
