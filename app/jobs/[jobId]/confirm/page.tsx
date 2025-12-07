@@ -3,13 +3,20 @@
 // レタッチ依頼確認画面（レシート風）
 // - sessionStorage からドラフト情報を読み込んで表示
 // - lib/pins から単価情報を読み出して内訳を再計算
-// - 送信ボタンで retouch_jobs に 1 行 INSERT
+// - 送信ボタンで retouch_jobs に 1 行 INSERT（新スキーマ対応）
 //   ※ retouch_jobs 側カラム：
-//     - note              : text
-//     - total_pins        : integer
-//     - total_price       : integer
-//     - pin_summary_text  : text
-//   ※ payload にはピン座標＋最低限のメタだけを保存
+//     - owner_id            : uuid
+//     - title               : text
+//     - description         : text
+//     - base_image_path     : text
+//     - license_source      : text
+//     - license_note        : text
+//     - payload             : jsonb
+//     - total_pins          : integer
+//     - total_price_coins   : integer
+//     - is_official_challenge : boolean
+//     - status              : enum(viret_retouch_job_status)
+//   ※ note / pinSummaryText / assetId などは payload 側に含める
 // =====================================
 
 "use client";
@@ -95,7 +102,6 @@ export default function JobRetouchConfirmPage() {
         counts[p.type] = { count: 0, subtotal: 0 };
       }
       counts[p.type]!.count += 1;
-      // def.price は pins.ts 側でエイリアス済み想定
       counts[p.type]!.subtotal += def.price;
     }
 
@@ -124,7 +130,7 @@ export default function JobRetouchConfirmPage() {
     };
   }, [draft]);
 
-  // ★「送信」ボタンの中身（retouch_jobs に 1 行 INSERT）
+  // ★「送信」ボタンの中身（retouch_jobs に 1 行 INSERT / 新スキーマ）
   const handleSubmit = async () => {
     if (!draft) return;
     setSubmitting(true);
@@ -139,7 +145,7 @@ export default function JobRetouchConfirmPage() {
         error: userError,
       } = await supabase.auth.getUser();
 
-      if (userError) {
+      if (userError || !user) {
         console.error("getUser error", userError);
         setSubmitError(
           "ログイン情報の取得に失敗しました。再度ログインし直してください。",
@@ -148,27 +154,41 @@ export default function JobRetouchConfirmPage() {
         return;
       }
 
-      // DB に保存する payload（ピン座標＋最低限のメタだけ）
+      // DB に保存する payload（ピン座標＋メタ一式）
       const payload = {
         pins: draft.pins ?? [],
         jobId: draft.jobId,
-        assetId: draft.assetId ?? assetId,
+        assetId: assetId,
         assetTitle: draft.assetTitle,
         previewUrl: draft.previewUrl,
+        note: draft.note || null,
+        pinSummaryText: draft.pinSummaryText || null,
       };
 
+      // 必須カラムを新スキーマに合わせて埋める
+      const title =
+        draft.assetTitle && draft.assetTitle.trim().length > 0
+          ? draft.assetTitle
+          : "レタッチ依頼（ピン指定）";
+
+      // とりあえず開発中は previewUrl を base_image_path として保存しておく
+      const baseImagePath =
+        draft.previewUrl && draft.previewUrl.trim().length > 0
+          ? draft.previewUrl
+          : `jobs/${user.id}/${assetId}/original.png`;
+
       const { error } = await supabase.from("retouch_jobs").insert({
-        asset_id: assetId,
-        owner_id: user?.id ?? null,
-
-        // 数値やテキストはカラムとして持つ
-        note: draft.note || null,
-        total_pins: breakdown.totalPins,
-        total_price: breakdown.totalPrice,
-        pin_summary_text: draft.pinSummaryText || null,
-
-        // ピン座標などの詳細は JSON payload に格納
+        owner_id: user.id,
+        title,
+        description: draft.note || null,
+        base_image_path: baseImagePath,
+        license_source: "self", // 開発中は自前素材扱い
+        license_note: null,
         payload,
+        total_pins: breakdown.totalPins,
+        total_price_coins: breakdown.totalPrice,
+        is_official_challenge: false,
+        status: "open",
       });
 
       if (error) {
@@ -222,9 +242,7 @@ export default function JobRetouchConfirmPage() {
 
         {!draft && (
           <Card className="mt-4 border border-amber-300 bg-amber-50 px-4 py-3 text-xs text-amber-800">
-            <p className="font-semibold">
-              ピン情報が見つかりませんでした。
-            </p>
+            <p className="font-semibold">ピン情報が見つかりませんでした。</p>
             <p className="mt-1">
               ブラウザのタブを開き直した場合など、編集中の情報が失われることがあります。
               <br />
@@ -350,9 +368,7 @@ export default function JobRetouchConfirmPage() {
               )}
 
               {submitError && (
-                <p className="mt-2 text-[11px] text-red-600">
-                  {submitError}
-                </p>
+                <p className="mt-2 text-[11px] text-red-600">{submitError}</p>
               )}
             </Card>
           </section>

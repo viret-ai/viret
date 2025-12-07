@@ -1,53 +1,53 @@
 // =====================================
 // app/api/retouch-jobs/[id]/entry/route.ts
-// ワンクリック応募API
-// - entries にレコードを追加
-// - 同じ job_id + retoucher_id は複数回追加しない（冪等）
+// 修正版：auth-helpers撤廃 / supabase-serverに統一
 // =====================================
 
-import { NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
+import type { Database } from "@/lib/database.types";
 import { supabaseServer } from "@/lib/supabase-server";
 
-type RouteParams = {
-  params: Promise<{ id: string }>;
+type RouteContext = {
+  params: Promise<{ id: string }>; // Next16: params は Promise
 };
 
-export async function POST(_: Request, { params }: RouteParams) {
-  const { id: jobId } = await params;
+export async function POST(req: NextRequest, context: RouteContext) {
+  const { id } = await context.params;
+
+  // ★ サーバー用 Supabase クライアント（Cookie完全対応）
   const supabase = await supabaseServer();
 
-  // 認証ユーザー（応募者）
+  // ---- ログインユーザー取得 ----
   const {
     data: { user },
+    error: authError,
   } = await supabase.auth.getUser();
-  if (!user) {
-    return NextResponse.json({ error: "not_authenticated" }, { status: 401 });
+
+  // 未ログイン → /login へ
+  if (authError || !user) {
+    const loginUrl = new URL(
+      `/login?next=${encodeURIComponent(`/retouch-jobs/${id}`)}`,
+      req.url,
+    );
+    return NextResponse.redirect(loginUrl);
   }
 
-  const retoucherId = user.id;
-
-  // --- すでに応募しているかチェック ---
-  const { data: exists } = await supabase
-    .from("entries")
-    .select("id")
-    .eq("job_id", jobId)
-    .eq("retoucher_id", retoucherId)
-    .maybeSingle();
-
-  if (exists) {
-    return NextResponse.redirect(`/retouch-jobs/${jobId}`, 303);
-  }
-
-  // --- 新規応募 ---
-  const { error } = await supabase.from("entries").insert({
-    job_id: jobId,
-    retoucher_id: retoucherId,
-    status: "pending",
+  // ---- entries に応募 ----
+  const { error: insertError } = await supabase.from("entries").insert({
+    retouch_job_id: id,
+    applicant_id: user.id,
+    status: "applied",
   });
 
-  if (error) {
-    return NextResponse.json({ error }, { status: 500 });
+  // すでに応募済み（23505）は成功扱い
+  if (insertError && (insertError as any).code !== "23505") {
+    return NextResponse.json(
+      { error: "insert_failed", detail: insertError.message },
+      { status: 400 },
+    );
   }
 
-  return NextResponse.redirect(`/retouch-jobs/${jobId}`, 303);
+  // 成功 → 元の依頼ページへ
+  const redirectUrl = new URL(`/retouch-jobs/${id}?applied=1`, req.url);
+  return NextResponse.redirect(redirectUrl);
 }

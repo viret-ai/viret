@@ -2,8 +2,8 @@
 // app/jobs/page.tsx
 // レタッチ依頼一覧ページ（公開掲示板ビュー）
 // - retouch_jobs を時系列で一覧表示（全ユーザー閲覧可）
-// - payload 内の totalPins / totalPrice / pinSummaryText などを使用
-// - 各カードから /retouch-jobs/[id] へ遷移（再編集リンクは持たない）
+// - タイトルは retouch_jobs.title / payload.assetTitle から取得
+// - ピン数・概算金額は total_pins / total_price_coins と payload の両方をフォールバック
 // =====================================
 
 import Link from "next/link";
@@ -12,14 +12,15 @@ import Card from "@/components/ui/Card";
 
 type RetouchJobRow = {
   id: string;
-  asset_id: string;
-  payload: unknown;
   created_at: string;
+  title: string | null;
+  payload: any | null;
+  total_pins: number | null;
+  total_price_coins: number | null;
 };
 
 type ListedJob = {
   id: string;
-  assetId: string;
   createdAt: string;
   title: string;
   summary: string;
@@ -32,7 +33,7 @@ export default async function JobsPage() {
 
   const { data, error } = await supabase
     .from("retouch_jobs")
-    .select("id, asset_id, payload, created_at")
+    .select("id, created_at, title, payload, total_pins, total_price_coins")
     .order("created_at", { ascending: false });
 
   const rows: RetouchJobRow[] = (data as RetouchJobRow[] | null) ?? [];
@@ -40,11 +41,16 @@ export default async function JobsPage() {
   const jobs: ListedJob[] = rows.map((row) => {
     const payload = (row.payload ?? {}) as any;
 
-    // タイトル（assets 側のタイトルを payload に入れておいた想定）
-    const title: string =
-      typeof payload.assetTitle === "string" && payload.assetTitle.trim().length > 0
-        ? payload.assetTitle
-        : "タイトル未設定の依頼";
+    // タイトル：テーブル側 title 優先 → payload.assetTitle
+    const titleFromPayload =
+      typeof payload.assetTitle === "string" &&
+      payload.assetTitle.trim().length > 0
+        ? payload.assetTitle.trim()
+        : "";
+    const title =
+      (row.title && row.title.trim().length > 0 ? row.title.trim() : "") ||
+      titleFromPayload ||
+      "タイトル未設定の依頼";
 
     // 内訳テキスト
     const summary: string =
@@ -54,27 +60,30 @@ export default async function JobsPage() {
         ? payload.summary
         : "";
 
-    // ピン数：payload.totalPins / total_pins / pins.length の順でフォールバック
+    // ピン数：payload.totalPins → payload.total_pins → total_pins → pins.length
     const totalPins: number =
       typeof payload.totalPins === "number"
         ? payload.totalPins
         : typeof payload.total_pins === "number"
         ? payload.total_pins
+        : typeof row.total_pins === "number"
+        ? row.total_pins
         : Array.isArray(payload.pins)
         ? payload.pins.length
         : 0;
 
-    // 概算金額：payload.totalPrice / total_price のどちらか
+    // 概算金額：payload.totalPrice → payload.total_price → total_price_coins
     const totalPrice: number =
       typeof payload.totalPrice === "number"
         ? payload.totalPrice
         : typeof payload.total_price === "number"
         ? payload.total_price
+        : typeof row.total_price_coins === "number"
+        ? row.total_price_coins
         : 0;
 
     return {
       id: row.id,
-      assetId: row.asset_id,
       createdAt: row.created_at,
       title,
       summary,

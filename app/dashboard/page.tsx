@@ -13,7 +13,7 @@ import { DEFAULT_ROLE } from "@/lib/roles";
 
 type ProfileRow = {
   id: string;
-  username: string | null;
+  handle: string | null;       // ← username ではなく handle
   display_name: string | null;
   role: ProfileRole | null;
 };
@@ -34,7 +34,7 @@ export default async function DashboardPage() {
     // 2) 既存 profiles を確認
     const { data: existing, error: profileError } = await supabase
       .from("profiles")
-      .select("id, username, display_name, role")
+      .select("id, handle, display_name, role") // ← handle を取得
       .eq("id", user.id)
       .maybeSingle();
 
@@ -46,7 +46,9 @@ export default async function DashboardPage() {
       // 3) 無ければ 1 回だけ自動作成
       const meta = (user.user_metadata ?? {}) as any;
 
-      const username: string | null = meta.username ?? null;
+      // signup 時に user_metadata に入れているキーを優先
+      const handle: string | null =
+        meta.handle ?? meta.username ?? null; // 両対応フォールバック
       const displayName: string | null =
         meta.display_name ?? user.email ?? null;
       const role: ProfileRole = (meta.role as ProfileRole) ?? DEFAULT_ROLE;
@@ -55,11 +57,11 @@ export default async function DashboardPage() {
         .from("profiles")
         .insert({
           id: user.id, // RLS: auth.uid() と一致させる
-          username,
+          handle,
           display_name: displayName,
           role,
         })
-        .select("id, username, display_name, role")
+        .select("id, handle, display_name, role")
         .single();
 
       if (insertError) {
@@ -157,12 +159,12 @@ export default async function DashboardPage() {
               </p>
               <p className={typography("body")}>
                 @ID：{" "}
-                {profile.username ? (
+                {profile.handle ? (
                   <a
-                    href={`/profile/${profile.username}`}
+                    href={`/profile/${profile.handle}`}
                     className="font-mono text-sky-700 underline"
                   >
-                    @{profile.username}
+                    @{profile.handle}
                   </a>
                 ) : (
                   <span className="text-slate-500">(未設定)</span>

@@ -2,7 +2,12 @@
 // app/retouch-jobs/[id]/page.tsx
 // レタッチ依頼詳細（職人向け）
 // - retouch_jobs 1件を表示
-// - ワンクリック応募（entries に inserted）
+// - 画像は base_image_path or payload.previewUrl を使用
+// - メモやサマリは description / payload.note / payload.pinSummaryText から表示
+// - ログインユーザーを取得して応募状態を確認
+//   - 依頼者本人 → ボタン非表示
+//   - 応募済み    → グレーの「応募済み」ボタン（disabled）
+//   - 未応募      → 「この依頼に手を挙げる」ボタン（POST）
 // =====================================
 
 import { notFound } from "next/navigation";
@@ -15,34 +20,51 @@ type PageProps = {
   params: Promise<{ id: string }>; // Next.js16: params は Promise
 };
 
+type RetouchJobRow = {
+  id: string;
+  owner_id: string | null;
+  title: string | null;
+  description: string | null;
+  base_image_path: string | null;
+  license_source: string | null;
+  license_note: string | null;
+  payload: any | null;
+  total_pins: number | null;
+  total_price_coins: number | null;
+  created_at: string;
+};
+
 export default async function RetouchJobDetailPage({ params }: PageProps) {
   const { id } = await params;
-
   const supabase = await supabaseServer();
 
-  // --- retouch_jobs と assets を join ---
+  // ---- 認証ユーザーを取得（応募状態チェック用）----
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  const currentUserId = user?.id ?? null;
+
+  // ---- retouch_jobs 単体取得（assets との join は行わない）----
   const { data, error } = await supabase
     .from("retouch_jobs")
     .select(
       `
         id,
-        asset_id,
         owner_id,
-        note,
+        title,
+        description,
+        base_image_path,
+        license_source,
+        license_note,
+        payload,
         total_pins,
-        total_price,
-        created_at,
-        assets:asset_id (
-          id,
-          title,
-          preview_path,
-          width,
-          height
-        )
-      `
+        total_price_coins,
+        created_at
+      `,
     )
     .eq("id", id)
-    .maybeSingle();
+    .maybeSingle<RetouchJobRow>();
 
   if (error) {
     return (
@@ -52,7 +74,10 @@ export default async function RetouchJobDetailPage({ params }: PageProps) {
           <pre className="mt-1 whitespace-pre-wrap break-all">
             {JSON.stringify(error, null, 2)}
           </pre>
-          <Link href="/retouch-jobs" className="mt-2 block text-sky-700 underline">
+          <Link
+            href="/retouch-jobs"
+            className="mt-2 block text-sky-700 underline"
+          >
             一覧に戻る
           </Link>
         </Card>
@@ -63,10 +88,71 @@ export default async function RetouchJobDetailPage({ params }: PageProps) {
   if (!data) notFound();
 
   const job = data;
-  const asset = job.assets;
-  const previewUrl = asset?.preview_path
-    ? getAssetPublicUrl(asset.preview_path)
-    : null;
+  const payload = (job.payload ?? {}) as any;
+
+  // ---- タイトル：テーブル側 title 優先 → payload.assetTitle ----
+  const titleFromPayload =
+    typeof payload.assetTitle === "string" &&
+    payload.assetTitle.trim().length > 0
+      ? payload.assetTitle.trim()
+      : "";
+  const title =
+    (job.title && job.title.trim().length > 0 ? job.title.trim() : "") ||
+    titleFromPayload ||
+    "レタッチ依頼";
+
+  // ---- メモ：description → payload.note ----
+  const noteText =
+    (job.description && job.description.trim().length > 0
+      ? job.description
+      : "") ||
+    (typeof payload.note === "string" ? payload.note : "");
+
+  // ---- ピン概要テキスト ----
+  const pinSummaryText =
+    typeof payload.pinSummaryText === "string" ? payload.pinSummaryText : "";
+
+  // ---- ピン数・金額 ----
+  const totalPins =
+    typeof job.total_pins === "number"
+      ? job.total_pins
+      : typeof payload.totalPins === "number"
+      ? payload.totalPins
+      : Array.isArray(payload.pins)
+      ? payload.pins.length
+      : 0;
+
+  const totalPrice =
+    typeof job.total_price_coins === "number"
+      ? job.total_price_coins
+      : typeof payload.totalPrice === "number"
+      ? payload.totalPrice
+      : 0;
+
+  // ---- プレビュー画像：payload.previewUrl 優先 → base_image_path ----
+  const previewUrl: string | null =
+    (typeof payload.previewUrl === "string" &&
+    payload.previewUrl.trim().length > 0
+      ? payload.previewUrl
+      : null) ||
+    (job.base_image_path ? getAssetPublicUrl(job.base_image_path) : null);
+
+  // ---- 応募状態チェック ----
+  const isOwner =
+    currentUserId !== null && job.owner_id === currentUserId;
+
+  let alreadyApplied = false;
+
+  if (currentUserId && !isOwner) {
+    const { data: entry } = await supabase
+      .from("entries")
+      .select("id")
+      .eq("retouch_job_id", job.id)
+      .eq("applicant_id", currentUserId)
+      .maybeSingle();
+
+    alreadyApplied = !!entry;
+  }
 
   return (
     <main className="min-h-screen bg-[var(--v-bg)] px-4 py-6 text-[var(--v-text)]">
@@ -93,7 +179,7 @@ export default async function RetouchJobDetailPage({ params }: PageProps) {
         <section className="grid gap-4 md:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]">
           {/* 左：画像＋メモ */}
           <Card className="border border-slate-200 bg-white p-4 text-xs text-slate-800">
-            <div className="text-[11px] font-semibold uppercase text-slate-500 mb-2">
+            <div className="mb-2 text-[11px] font-semibold uppercase text-slate-500">
               PREVIEW
             </div>
 
@@ -101,20 +187,24 @@ export default async function RetouchJobDetailPage({ params }: PageProps) {
               {previewUrl ? (
                 <img
                   src={previewUrl}
-                  alt={asset?.title ?? ""}
+                  alt={title}
                   className="max-h-[360px] w-auto object-contain"
                 />
               ) : (
-                <span className="text-slate-400">画像なし</span>
+                <span className="text-[11px] text-slate-400">
+                  画像なし
+                </span>
               )}
             </div>
 
             <div className="mt-3 border-t border-slate-200 pt-3">
-              <div className="text-[11px] font-semibold text-slate-600 mb-1">
+              <div className="mb-1 text-[11px] font-semibold text-slate-600">
                 依頼メモ
               </div>
-              {job.note ? (
-                <p className="whitespace-pre-wrap text-xs">{job.note}</p>
+              {noteText ? (
+                <p className="whitespace-pre-wrap text-xs leading-relaxed">
+                  {noteText}
+                </p>
               ) : (
                 <p className="text-[11px] text-slate-500">
                   メモはありません。
@@ -129,22 +219,32 @@ export default async function RetouchJobDetailPage({ params }: PageProps) {
               <div className="text-[11px] font-semibold uppercase text-slate-500">
                 SUMMARY
               </div>
-              <div className="text-sm font-semibold text-slate-900 mt-1">
+              <div className="mt-1 text-sm font-semibold text-slate-900">
                 内訳
               </div>
             </div>
 
-            <div className="rounded border border-slate-200 bg-slate-50 px-3 py-2">
+            <div className="space-y-1 rounded border border-slate-200 bg-slate-50 px-3 py-2">
               <p className="text-[11px]">
-                ピン総数：<span className="font-mono">{job.total_pins}</span>
+                ピン総数：
+                <span className="font-mono">{totalPins}</span>
               </p>
               <p className="text-[11px]">
-                概算金額：¥{job.total_price.toLocaleString()}
+                概算金額：
+                <span className="font-mono">
+                  ¥{totalPrice.toLocaleString()}
+                </span>
               </p>
+              {pinSummaryText && (
+                <p className="mt-1 text-[11px] text-slate-700">
+                  {pinSummaryText}
+                </p>
+              )}
             </div>
 
-            <p className="mt-2 text-[10px] text-slate-500 border-t border-dashed border-slate-300 pt-2">
-              実金額はレタッチャー確定後に最終調整されます。
+            <p className="mt-2 border-t border-dashed border-slate-300 pt-2 text-[10px] text-slate-500">
+              金額はピン種別と本数にもとづく概算です。実際の請求額は、
+              採用後に依頼者・レタッチャー間で確定します。
             </p>
           </Card>
         </section>
@@ -158,18 +258,39 @@ export default async function RetouchJobDetailPage({ params }: PageProps) {
             ← 一覧に戻る
           </Link>
 
-          <form
-            action={`/api/retouch-jobs/${job.id}/entry`}
-            method="post"
-            className="inline-flex"
-          >
-            <button
-              type="submit"
-              className="rounded bg-slate-900 px-6 py-2 text-xs font-semibold text-white hover:bg-slate-800"
-            >
-              この依頼に手を挙げる →
-            </button>
-          </form>
+          {/* 右側：ボタンエリア（依頼者 / 応募済み / 未応募 で出し分け） */}
+          <div className="inline-flex">
+            {isOwner ? (
+              <button
+                type="button"
+                disabled
+                className="cursor-default rounded border border-slate-300 bg-slate-100 px-6 py-2 text-xs font-semibold text-slate-500"
+              >
+                自分の依頼のため応募できません
+              </button>
+            ) : alreadyApplied ? (
+              <button
+                type="button"
+                disabled
+                className="cursor-default rounded border border-slate-300 bg-slate-100 px-6 py-2 text-xs font-semibold text-slate-500"
+              >
+                応募済みの依頼です
+              </button>
+            ) : (
+              <form
+                action={`/api/retouch-jobs/${job.id}/entry`}
+                method="post"
+                className="inline-flex"
+              >
+                <button
+                  type="submit"
+                  className="rounded bg-slate-900 px-6 py-2 text-xs font-semibold text-white hover:bg-slate-800"
+                >
+                  この依頼に手を挙げる →
+                </button>
+              </form>
+            )}
+          </div>
         </section>
       </div>
     </main>

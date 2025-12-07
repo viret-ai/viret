@@ -73,28 +73,26 @@ export default async function AssetDetailPage({ params }: PageProps) {
 
   const asset = data as AssetRow | null;
 
-  // クリエイターの @username を取得
-  let creatorUsername: string | null = null;
+  // クリエイターの @handle を取得
+  let creatorHandle: string | null = null;
 
   if (asset?.owner_id) {
     const { data: profile } = await supabase
       .from("profiles")
-      .select("username")
+      .select("handle")
       .eq("id", asset.owner_id)
       .maybeSingle();
 
-    creatorUsername = profile?.username ?? null;
+    creatorHandle = profile?.handle ?? null;
   }
 
-  const creatorLabel = creatorUsername
-    ? `@${creatorUsername}`
+  const creatorLabel = creatorHandle
+    ? `@${creatorHandle}`
     : asset?.owner_id
     ? `creator_${asset.owner_id.slice(0, 8)}`
     : "unknown_creator";
 
-  const creatorProfileUrl = creatorUsername
-    ? `/profile/${creatorUsername}`
-    : null;
+  const creatorProfileUrl = creatorHandle ? `/profile/${creatorHandle}` : null;
 
   const previewUrl = asset ? getAssetPublicUrl(asset.preview_path) : null;
   const originalUrl =
