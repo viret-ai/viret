@@ -70,7 +70,7 @@ export default function SignupPage() {
   const [loading, setLoading] = useState(false);
 
   // -----------------------------
-  // @ID 重複チェック
+  // @ID 重複チェック（profiles.handle を使用）
   // -----------------------------
   useEffect(() => {
     const check = async () => {
@@ -99,10 +99,11 @@ export default function SignupPage() {
 
       setUsernameStatus("checking");
 
+      // ★ profiles.username → profiles.handle に変更
       const { data, error } = await supabase
         .from("profiles")
-        .select("username")
-        .eq("username", username)
+        .select("handle")
+        .eq("handle", username)
         .maybeSingle();
 
       if (error) {
@@ -193,7 +194,9 @@ export default function SignupPage() {
         emailRedirectTo: `${origin}/login`, // 確認メール後は /login に遷移
         data: {
           display_name: displayName,
-          username,
+          // ★ metadata.username → metadata.handle に変更
+          //   入力された文字（大文字・小文字）はそのまま保持
+          handle: username,
           role,
         },
       },
@@ -210,6 +213,14 @@ export default function SignupPage() {
       "確認メールを送信しました。メール内のリンクをクリックして登録を完了してください。完了後、ログイン画面からサインインできます。"
     );
   };
+
+  // -----------------------------
+  // 表示用 / URL 用ハンドル
+  // -----------------------------
+  // 表示用：ユーザー入力そのまま（大文字も保持）
+  const previewHandle = username || "User_123";
+  // URL 用：実際に /profile/{handle} で使う想定の小文字版
+  const previewHandleUrl = previewHandle.toLowerCase();
 
   // -----------------------------
   // レンダリング
@@ -288,7 +299,7 @@ export default function SignupPage() {
               </label>
 
               <div className="flex items-center gap-1">
-                <span className="text-sm text-slate-500">@</span>
+                <span className="text-sm text-slate-900">@</span>
                 <input
                   className="
                     w-full rounded-md border border-black/10
@@ -296,7 +307,7 @@ export default function SignupPage() {
                     outline-none
                     focus:border-sky-500 focus:ring-1 focus:ring-sky-300
                   "
-                  placeholder="viret_user"
+                  placeholder="User_123"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                 />
@@ -355,12 +366,12 @@ export default function SignupPage() {
                 </span>
               </p>
 
-              {/* プロフィールURL例（常時表示） */}
+              {/* プロフィールURL例（常時表示：URL は小文字、表示名は入力そのまま） */}
               <p className={`${typography("caption")} mt-1 text-slate-500`}>
                 プロフィールURL例：
                 <span className="font-mono">
                   {" /profile/"}
-                  {username || "viret_user"}
+                  {previewHandleUrl}
                 </span>
               </p>
             </div>

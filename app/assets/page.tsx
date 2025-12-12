@@ -24,7 +24,7 @@ export default async function AssetsPage() {
     .from("assets")
     .select("id, title, preview_path, created_at, status")
     .eq("status", "public")
-    .order("created_at", { ascending: false });
+    .order("created_at", { ascending: true });
 
   if (error) {
     console.error("[assets] fetch error", error);

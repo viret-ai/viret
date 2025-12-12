@@ -1,7 +1,9 @@
 // =====================================
 // app/login/page.tsx
-// ログイン（メール＋パスワード）
-// テーマ連動＋Card＋Typography＋Button版
+// ログイン（メール or @ID ＋ パスワード）
+// - メールアドレス または @ID でログイン可能
+// - @ID の場合は public.get_email_by_handle() RPC 経由で email を解決
+// - テーマ連動＋Card＋Typography＋Button版
 // =====================================
 
 "use client";
@@ -15,27 +17,92 @@ import { typography } from "@/lib/theme";
 
 export default function LoginPage() {
   const router = useRouter();
-  const [email, setEmail] = useState("");
+
+  // 入力値：メールアドレス または @ID
+  const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [msg, setMsg] = useState("");
+  const [loading, setLoading] = useState(false);
 
+  // -----------------------------
+  // ログイン処理
+  // -----------------------------
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setMsg("");
 
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
+    const raw = identifier.trim();
+    const pw = password;
 
-    if (error) {
-      setMsg("ログイン失敗：" + error.message);
+    if (!raw) {
+      setMsg("メールアドレスまたは @ID を入力してください。");
+      return;
+    }
+    if (!pw) {
+      setMsg("パスワードを入力してください。");
       return;
     }
 
-    router.push("/dashboard");
+    setLoading(true);
+
+    try {
+      let loginEmail = raw;
+
+      // ざっくり「メールアドレスっぽいか」を判定
+      const looksLikeEmail = /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(raw);
+
+      if (!looksLikeEmail) {
+        // ----------------------------------------
+        // @ID とみなして、handle → email を RPC で解決
+        // public.get_email_by_handle(handle_input text) を呼ぶ
+        // ----------------------------------------
+        const { data, error } = await supabase.rpc("get_email_by_handle", {
+          handle_input: raw,
+        });
+
+        if (error) {
+          console.error("get_email_by_handle error", error);
+          setMsg(
+            "@ID からメールアドレスを取得できませんでした。しばらく待ってから再度お試しください。"
+          );
+          setLoading(false);
+          return;
+        }
+
+        if (!data) {
+          setMsg("該当する @ID が見つかりませんでした。入力内容を確認してください。");
+          setLoading(false);
+          return;
+        }
+
+        loginEmail = data;
+      }
+
+      // ----------------------------------------
+      // Supabase パスワードログイン（メールで統一）
+      // ----------------------------------------
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: loginEmail,
+        password: pw,
+      });
+
+      if (signInError) {
+        setMsg("ログイン失敗：" + signInError.message);
+        setLoading(false);
+        return;
+      }
+
+      router.push("/dashboard");
+    } catch (err) {
+      console.error("login unexpected error", err);
+      setMsg("予期しないエラーが発生しました。もう一度お試しください。");
+      setLoading(false);
+    }
   };
 
+  // -----------------------------
+  // レンダリング
+  // -----------------------------
   return (
     <main className="min-h-screen bg-[var(--v-bg)] text-[var(--v-text)] px-4 py-10">
       <div className="mx-auto flex max-w-md flex-col gap-6">
@@ -43,9 +110,10 @@ export default function LoginPage() {
 
         <Card as="section">
           <form onSubmit={handleLogin} className="space-y-4">
+            {/* メールアドレス or @ID */}
             <div>
               <label className={`${typography("body")} mb-1 block text-sm`}>
-                メールアドレス
+                メールアドレス または ユーザーID（@ID）
               </label>
               <input
                 className="
@@ -55,12 +123,13 @@ export default function LoginPage() {
                   outline-none
                   focus:border-sky-500 focus:ring-1 focus:ring-sky-300
                 "
-                placeholder="you@example.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                placeholder="you@example.com または User_123"
+                value={identifier}
+                onChange={(e) => setIdentifier(e.target.value)}
               />
             </div>
 
+            {/* パスワード */}
             <div>
               <label className={`${typography("body")} mb-1 block text-sm`}>
                 パスワード
@@ -81,8 +150,8 @@ export default function LoginPage() {
             </div>
 
             <div className="pt-2 space-y-2">
-              <Button type="submit" className="w-full">
-                ログイン
+              <Button type="submit" className="w-full" disabled={loading}>
+                {loading ? "ログイン中..." : "ログイン"}
               </Button>
 
               {msg && (

@@ -38,7 +38,12 @@ export default function Header() {
           プラン
         </Link>
 
-        {/* 認証関連（シンプルに2つだけ） */}
+        {/* 🪙 コイン購入（テスト用リンク） */}
+        <Link href="/coins" className="hover:text-sky-700">
+          コイン購入
+        </Link>
+
+        {/* 認証関連（シンプル構成） */}
         <Link href="/login" className="hover:text-sky-700">
           ログイン
         </Link>

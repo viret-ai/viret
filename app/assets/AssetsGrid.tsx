@@ -64,7 +64,7 @@ export default function AssetsGrid({ items }: Props) {
             group relative flex-none
             h-40 sm:h-44 md:h-52 lg:h-56
             bg-slate-100 dark:bg-slate-800
-            overflow-hidden rounded-md
+            overflow-hidden rounded-none
           "
         >
           <img
