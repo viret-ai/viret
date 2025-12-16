@@ -1,28 +1,46 @@
 // =====================================
 // app/assets/AssetsGrid.tsx
 // 素材一覧グリッド（クライアント・スクロール位置保持）
+// - 旧仕様（items: {id,title,imageUrl}）維持
+// - DB直（preview_path）も変換可能
+// - クリック先は /assets/[id]（フルページ）
+//   ※ プロフ等の「一覧以外」起点用
 // =====================================
 
 "use client";
 
 import Link from "next/link";
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import { typography } from "@/lib/theme";
+import { getAssetPublicUrl } from "@/lib/storage";
 
-type AssetItem = {
+type LegacyItem = {
   id: string;
   title: string;
   imageUrl: string;
 };
 
-type Props = {
-  items: AssetItem[];
+type DbLikeItem = {
+  id: string;
+  title: string | null;
+  preview_path: string | null;
 };
+
+type Props =
+  | {
+      items: LegacyItem[];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      assets?: any;
+    }
+  | {
+      assets: DbLikeItem[];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      items?: any;
+    };
 
 const SCROLL_KEY = "viret-assets-scroll";
 
-export default function AssetsGrid({ items }: Props) {
-  // スクロール保存＆復元
+export default function AssetsGrid(props: Props) {
   useEffect(() => {
     try {
       const saved = sessionStorage.getItem(SCROLL_KEY);
@@ -44,12 +62,33 @@ export default function AssetsGrid({ items }: Props) {
     } catch {}
   }, []);
 
+  const items: LegacyItem[] = useMemo(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const maybeItems = (props as any).items as LegacyItem[] | undefined;
+    if (Array.isArray(maybeItems)) return maybeItems;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const maybeAssets = (props as any).assets as DbLikeItem[] | undefined;
+    if (!Array.isArray(maybeAssets)) return [];
+
+    return maybeAssets
+      .map((a) => {
+        const url = a.preview_path ? getAssetPublicUrl(a.preview_path) : null;
+        if (!url) return null;
+
+        return {
+          id: a.id,
+          title: a.title ?? "タイトル未設定",
+          imageUrl: url,
+        } satisfies LegacyItem;
+      })
+      .filter((x): x is LegacyItem => Boolean(x));
+  }, [props]);
+
   if (items.length === 0) {
     return (
       <div className="mt-16 text-center">
-        <p className={typography("body") + " opacity-60"}>
-          まだ素材がありません。
-        </p>
+        <p className={typography("body") + " opacity-60"}>まだ素材がありません。</p>
       </div>
     );
   }
@@ -59,7 +98,7 @@ export default function AssetsGrid({ items }: Props) {
       {items.map((item) => (
         <Link
           key={item.id}
-          href={`/assets/${item.id}`}
+          href={`/assets/${item.id}`} // ✅ プロフ起点＝フルページ
           className="
             group relative flex-none
             h-40 sm:h-44 md:h-52 lg:h-56
@@ -90,11 +129,7 @@ export default function AssetsGrid({ items }: Props) {
               group-hover:opacity-100
             "
           >
-            <span
-              className="
-                line-clamp-2 text-[11px] font-semibold text-white drop-shadow
-              "
-            >
+            <span className="line-clamp-2 text-[11px] font-semibold text-white drop-shadow">
               {item.title}
             </span>
           </div>

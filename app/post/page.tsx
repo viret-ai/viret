@@ -2,6 +2,7 @@
 // app/post/page.tsx
 // 素材アップロードページ（AI画像投稿）
 // テーマ連動＋中央寄せ＋ドラッグ＆ドロップアップロード版
+// + C2PA(Content Credentials) の軽量検出 → asset_checks に保存（最小AIチェッカー）
 // =====================================
 
 "use client";
@@ -34,6 +35,47 @@ const getImageSize = (
     };
     img.src = url;
   });
+};
+
+// C2PA/Content Credentials を “あるっぽいか” だけ軽く検出する
+// ※ 完全な検証ではない（署名検証などはしない）
+// ※ 目的：ユーザーが「証跡ありの画像」を持ち込めたかの参考シグナル
+const detectC2PALite = async (
+  file: File,
+): Promise<{ present: boolean; hits: string[] }> => {
+  try {
+    const buf = await file.arrayBuffer();
+    const bytes = new Uint8Array(buf);
+
+    // 文字列検索用に軽くテキスト化（完全変換ではないけど “タグ断片” は拾える）
+    // // 大きい画像でも雑に走るけど、ここは最小実装なのでOKにする
+    let text = "";
+    const step = 2; // // 速度優先で間引き
+    for (let i = 0; i < bytes.length; i += step) {
+      const c = bytes[i];
+      // // ASCIIっぽい範囲だけ拾う（変な制御文字は捨てる）
+      if (c >= 32 && c <= 126) text += String.fromCharCode(c);
+      else text += " ";
+      // // textが肥大化しすぎないように上限
+      if (text.length > 2_000_000) break;
+    }
+
+    const needles = [
+      "c2pa",
+      "contentcredentials",
+      "content credentials",
+      "c2pa.assertions",
+      "c2pa.manifest",
+      "xmpmeta",
+      "adobe:manifest",
+      "urn:c2pa",
+    ];
+
+    const hits = needles.filter((n) => text.toLowerCase().includes(n));
+    return { present: hits.length > 0, hits };
+  } catch {
+    return { present: false, hits: [] };
+  }
 };
 
 export default function PostPage() {
@@ -128,11 +170,16 @@ export default function PostPage() {
         return;
       }
 
+      // AIチェッカー（最小）：C2PAの “ある/なし” を事前に軽量検出
+      setMsg("画像を検査中（C2PA確認）...");
+      const c2pa = await detectC2PALite(file);
+
       const ext = file.name.split(".").pop() || "png";
       const assetId = crypto.randomUUID(); // assets.id と合わせる
       const path = `${user.id}/${assetId}/original.${ext}`;
 
       // Storage にアップロード
+      setMsg("アップロード中...");
       const { error: uploadError } = await supabase.storage
         .from("assets")
         .upload(path, file);
@@ -150,6 +197,7 @@ export default function PostPage() {
           .map((t) => t.trim())
           .filter((t) => t.length > 0) ?? [];
 
+      setMsg("DB登録中...");
       const { error: insertError } = await supabase.from("assets").insert({
         id: assetId,
         owner_id: user.id,
@@ -169,7 +217,34 @@ export default function PostPage() {
         return;
       }
 
-      setMsg("素材を登録しました。");
+      // チェック結果を保存（失敗しても投稿自体は通す：最小構成）
+      // // asset_checks がまだ無い場合は SQL を先に流してから
+      const status = c2pa.present ? "ok" : "review";
+      const { error: checkInsertError } = await supabase
+        .from("asset_checks")
+        .insert({
+          asset_id: assetId,
+          provider: "c2pa-lite",
+          status,
+          score: null,
+          c2pa_present: c2pa.present,
+          details: {
+            hits: c2pa.hits,
+            note:
+              "C2PAの完全検証ではなく、ファイル内の断片文字列からの軽量検出です。",
+          },
+        });
+
+      // // ここは“補助機能”なので、失敗しても止めない
+      if (checkInsertError) {
+        console.warn("asset_checks insert failed:", checkInsertError);
+      }
+
+      setMsg(
+        c2pa.present
+          ? "素材を登録しました。（C2PA: あり）"
+          : "素材を登録しました。（C2PA: なし / 要レビュー扱い）",
+      );
       router.push("/assets");
     } catch (err: any) {
       console.error(err);
@@ -234,6 +309,9 @@ export default function PostPage() {
               <p className="mt-1 text-[11px] text-slate-500">
                 短辺720px以上の AI画像のみアップロードできます。
               </p>
+              <p className="mt-1 text-[11px] text-slate-500">
+                AIチェッカー（暫定）：C2PA（Content Credentials）の有無を確認して記録します。
+              </p>
             </div>
 
             {/* タイトル */}
@@ -283,7 +361,7 @@ export default function PostPage() {
                 disabled={loading}
                 className="inline-flex items-center rounded-sm bg-sky-600 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-500 disabled:opacity-60"
               >
-                {loading ? "アップロード中..." : "投稿する"}
+                {loading ? "処理中..." : "投稿する"}
               </button>
             </div>
 

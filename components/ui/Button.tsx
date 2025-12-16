@@ -4,6 +4,7 @@
 // - 角丸: themeConfig.radius.button
 // - 色: variant で切り替え
 // - サイズ: sm / md
+// - NOTE: outline/ghost は「基本黒文字」寄せ（見失い防止）
 // =====================================
 
 "use client";
@@ -15,13 +16,9 @@ type ButtonVariant = "primary" | "secondary" | "outline" | "ghost" | "danger";
 type ButtonSize = "sm" | "md";
 
 type Props = {
-  // ボタン内の表示内容
   children: ReactNode;
-  // 見た目バリエーション
   variant?: ButtonVariant;
-  // サイズ
   size?: ButtonSize;
-  // 追加クラス
   className?: string;
 } & ButtonHTMLAttributes<HTMLButtonElement>;
 
@@ -32,16 +29,11 @@ export default function Button({
   className,
   ...rest
 }: Props) {
-  // テーマから角丸を取得
   const radiusClass = resolveRadiusClass(themeConfig.radius.button);
 
-  // サイズ別クラス
   const sizeClass =
-    size === "sm"
-      ? "px-3 py-1.5 text-xs"
-      : "px-4 py-2 text-sm";
+    size === "sm" ? "px-3 py-1.5 text-xs" : "px-4 py-2 text-sm";
 
-  // variant ごとのクラス
   let variantClass = "";
   switch (variant) {
     case "primary":
@@ -54,11 +46,13 @@ export default function Button({
       break;
     case "outline":
       variantClass =
-        "border border-slate-300 text-[var(--v-text)] hover:bg-slate-50 disabled:opacity-60";
+        "border border-slate-300 text-slate-900 hover:bg-slate-50 disabled:opacity-60 " +
+        "dark:border-white/10 dark:text-slate-100 dark:hover:bg-white/10";
       break;
     case "ghost":
       variantClass =
-        "bg-transparent text-[var(--v-text)] hover:bg-slate-100 disabled:opacity-60";
+        "bg-transparent text-slate-900 hover:bg-slate-100 disabled:opacity-60 " +
+        "dark:text-slate-100 dark:hover:bg-white/10";
       break;
     case "danger":
       variantClass =

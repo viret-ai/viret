@@ -73,3 +73,41 @@ body {
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
+
+/* =====================================
+   Viret layout vars (responsive)
+   - サイドバー実幅(--v-sidebar-w)と、レイアウト用slot(--v-sidebar-slot)を同期
+   - これで「小画面は中央潰れない / 大画面は被らない」が両立する
+===================================== */
+
+:root {
+  /* // デフォルトは広い画面想定（layout.tsx でも同じ値を初期注入してる） */
+  --v-sidebar-slot: 240px;
+  --v-sidebar-w: 240px;
+}
+
+/* // md未満：アイコンのみ（64px） */
+@media (max-width: 767px) {
+  :root {
+    --v-sidebar-slot: 64px;
+    --v-sidebar-w: 64px;
+  }
+}
+
+/* // md以上：フル（240px） */
+@media (min-width: 768px) {
+  :root {
+    --v-sidebar-slot: 240px;
+    --v-sidebar-w: 240px;
+  }
+}
+
+/* スクロールバー分の幅を常に確保して、横ズレを物理的に起こさせない */
+/* 常に縦スクロールバーを確保して、横幅を永久固定する */
+/* スクロールバー分の“ガター”だけ常に確保して横幅を固定 */
+html {
+  scrollbar-gutter: stable;
+}
+
+
+

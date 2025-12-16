@@ -3,6 +3,7 @@
 // レタッチ依頼の応募者を「採用」して契約ジョブを作成する API
 // - POST /api/retouch-jobs/{id}/assign
 // - body: { entryId: string }
+// - jobs.required_ext を retouch_jobs.requested_ext から確定（暫定）
 // =====================================
 
 import { NextRequest, NextResponse } from "next/server";
@@ -71,7 +72,7 @@ export async function POST(
   } = await supabase
     .from("retouch_jobs")
     .select(
-      "id, owner_id, title, description, base_image_path, total_pins, total_price_coins, status"
+      "id, owner_id, title, description, base_image_path, total_pins, total_price_coins, status, requested_ext"
     )
     .eq("id", retouchJobId)
     .maybeSingle();
@@ -166,6 +167,13 @@ export async function POST(
   // ---- 5) 採用処理 ----
   const nowIso = new Date().toISOString();
 
+  // // requested_ext -> required_ext の確定（暫定：小文字化 + ドット除去）
+  const rawExt = (retouchJob as any).requested_ext as string | null | undefined;
+  const requiredExt =
+    rawExt && typeof rawExt === "string"
+      ? rawExt.trim().replace(/^\./, "").toLowerCase()
+      : null;
+
   // 5-1) 採用された応募を accepted に更新
   const { error: acceptError } = await supabase
     .from("entries")
@@ -221,6 +229,7 @@ export async function POST(
       base_image_path: retouchJob.base_image_path,
       total_pins: retouchJob.total_pins,
       total_price_coins: retouchJob.total_price_coins,
+      required_ext: requiredExt,
       status: "active",
       started_at: nowIso,
       updated_at: nowIso,
@@ -242,5 +251,6 @@ export async function POST(
     retouchJobId,
     jobId: insertedJobs.id,
     applicantId: entry.applicant_id,
+    requiredExt, // // デバッグ用：契約時点で確定した拡張子
   });
 }

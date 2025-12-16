@@ -2,16 +2,12 @@
 // app/signup/page.tsx
 // 新規登録ページ
 // - メール / パスワード / 表示名 / @ID / ロール
-// - 必須＊表示
-// - @ID 重複チェック付き
-// - @ID は「活動開始後は固定 ＋ どうしてもならお問い合わせ」仕様
-// - @ID 仕様：2〜20文字 / 半角英数字 + '_' / 全数字NG / 予約語を単語として含むIDはNG
-// - 表示名：半角50文字以内（全角は25文字相当）
+// - official はUIから選べない（運営が付与する）
 // =====================================
 
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
@@ -19,11 +15,9 @@ import { typography } from "@/lib/theme";
 import type { ProfileRole } from "@/lib/roles";
 import { ROLE_LABEL_JA, DEFAULT_ROLE } from "@/lib/roles";
 
-// @ID バリデーション用定数
-const USERNAME_ALLOWED_CHARS = /^[a-zA-Z0-9_]+$/; // 利用可能文字
-const DIGITS_ONLY = /^[0-9]+$/; // 全数字判定
+const USERNAME_ALLOWED_CHARS = /^[a-zA-Z0-9_]+$/;
+const DIGITS_ONLY = /^[0-9]+$/;
 
-// 予約語（_ 区切りの単語として一致した場合は NG）
 const USERNAME_NG_WORDS = [
   "admin",
   "support",
@@ -33,18 +27,14 @@ const USERNAME_NG_WORDS = [
   "staff",
   "null",
   "void",
-  // 今後、不適切用語などはここに追加していく
 ];
 
-// 表示名の長さを「半角=1 / 全角=2」としてカウント
 function getDisplayNameLength(value: string): number {
   return Array.from(value).reduce((total, ch) => {
-    // おおまかに「ASCII → 半角、それ以外 → 全角」とみなす
     return total + (/[\u0000-\u007f]/.test(ch) ? 1 : 2);
   }, 0);
 }
 
-// @ID が予約語を「_ で区切った単語」として含むかどうか
 function containsNgWord(username: string): boolean {
   const parts = username.toLowerCase().split("_").filter(Boolean);
   if (!parts.length) return false;
@@ -52,26 +42,27 @@ function containsNgWord(username: string): boolean {
 }
 
 export default function SignupPage() {
-  // フォーム状態
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [username, setUsername] = useState("");
   const [role, setRole] = useState<ProfileRole>(DEFAULT_ROLE);
 
-  // @ID 重複チェック状態
   const [usernameStatus, setUsernameStatus] = useState<
     "idle" | "checking" | "ok" | "taken" | "invalid"
   >("idle");
 
-  // メッセージ表示
   const [msg, setMsg] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
   const [loading, setLoading] = useState(false);
 
-  // -----------------------------
-  // @ID 重複チェック（profiles.handle を使用）
-  // -----------------------------
+  // UIで出すロール（official は除外）
+  const selectableRoles = useMemo(() => {
+    return (Object.keys(ROLE_LABEL_JA) as ProfileRole[]).filter(
+      (r) => r !== "official"
+    );
+  }, []);
+
   useEffect(() => {
     const check = async () => {
       if (!username) {
@@ -79,7 +70,6 @@ export default function SignupPage() {
         return;
       }
 
-      // 文字種と長さが明らかにNGなら、DBまでは見に行かない
       if (!USERNAME_ALLOWED_CHARS.test(username)) {
         setUsernameStatus("invalid");
         return;
@@ -99,7 +89,6 @@ export default function SignupPage() {
 
       setUsernameStatus("checking");
 
-      // ★ profiles.username → profiles.handle に変更
       const { data, error } = await supabase
         .from("profiles")
         .select("handle")
@@ -107,32 +96,22 @@ export default function SignupPage() {
         .maybeSingle();
 
       if (error) {
-        // エラー時は重複チェック結果を確定させず、「idle」に戻す
         setUsernameStatus("idle");
         return;
       }
 
-      if (data) {
-        setUsernameStatus("taken");
-      } else {
-        setUsernameStatus("ok");
-      }
+      setUsernameStatus(data ? "taken" : "ok");
     };
 
-    const timeoutId = setTimeout(check, 300); // 0.3秒ディレイで負荷を軽減
+    const timeoutId = setTimeout(check, 300);
     return () => clearTimeout(timeoutId);
   }, [username]);
 
-  // -----------------------------
-  // 入力バリデーション
-  // -----------------------------
   const validate = () => {
     if (!email) return "メールアドレスを入力してください。";
-
     if (!password || password.length < 6) {
       return "パスワードは6文字以上を入力してください。";
     }
-
     if (!displayName) return "表示名を入力してください。";
 
     const displayLen = getDisplayNameLength(displayName);
@@ -141,37 +120,33 @@ export default function SignupPage() {
     }
 
     if (!username) return "@ID を入力してください。";
-
     if (!USERNAME_ALLOWED_CHARS.test(username)) {
       return "@ID は半角英数字とアンダースコアのみ利用できます。";
     }
-
     if (username.length < 2 || username.length > 20) {
       return "@ID は2〜20文字で入力してください。";
     }
-
     if (DIGITS_ONLY.test(username)) {
       return "@ID をすべて数字だけにすることはできません。別のIDを入力してください。";
     }
-
     if (containsNgWord(username)) {
       return "この @ID は利用できません。別のIDを入力してください。";
     }
-
     if (usernameStatus === "taken") {
       return "@ID がすでに使用されています。別のIDを入力してください。";
     }
-
     if (usernameStatus === "checking") {
       return "@ID の確認中です。少し待ってから再度お試しください。";
+    }
+
+    // 念のため：UIからは選べないが、手で改変された場合に弾く
+    if (role === "official") {
+      return "このロールは選択できません。";
     }
 
     return "";
   };
 
-  // -----------------------------
-  // サインアップ処理
-  // -----------------------------
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
     setMsg("");
@@ -191,11 +166,9 @@ export default function SignupPage() {
       email,
       password,
       options: {
-        emailRedirectTo: `${origin}/login`, // 確認メール後は /login に遷移
+        emailRedirectTo: `${origin}/login`,
         data: {
           display_name: displayName,
-          // ★ metadata.username → metadata.handle に変更
-          //   入力された文字（大文字・小文字）はそのまま保持
           handle: username,
           role,
         },
@@ -214,17 +187,9 @@ export default function SignupPage() {
     );
   };
 
-  // -----------------------------
-  // 表示用 / URL 用ハンドル
-  // -----------------------------
-  // 表示用：ユーザー入力そのまま（大文字も保持）
   const previewHandle = username || "User_123";
-  // URL 用：実際に /profile/{handle} で使う想定の小文字版
   const previewHandleUrl = previewHandle.toLowerCase();
 
-  // -----------------------------
-  // レンダリング
-  // -----------------------------
   return (
     <main className="min-h-screen bg-[var(--v-bg)] text-[var(--v-text)] px-4 py-10">
       <div className="mx-auto flex max-w-md flex-col gap-6">
@@ -232,7 +197,6 @@ export default function SignupPage() {
 
         <Card as="section">
           <form onSubmit={handleSignup} className="space-y-5">
-            {/* メールアドレス */}
             <div>
               <label className={`${typography("body")} mb-1 block text-sm`}>
                 メールアドレス <span className="text-red-600">*</span>
@@ -250,7 +214,6 @@ export default function SignupPage() {
               />
             </div>
 
-            {/* パスワード */}
             <div>
               <label className={`${typography("body")} mb-1 block text-sm`}>
                 パスワード <span className="text-red-600">*</span>
@@ -269,7 +232,6 @@ export default function SignupPage() {
               />
             </div>
 
-            {/* 表示名 */}
             <div>
               <label className={`${typography("body")} mb-1 block text-sm`}>
                 表示名 <span className="text-red-600">*</span>
@@ -292,7 +254,6 @@ export default function SignupPage() {
               </p>
             </div>
 
-            {/* ユーザーID（@ID） */}
             <div>
               <label className={`${typography("body")} mb-1 block text-sm`}>
                 ユーザーID（@ID） <span className="text-red-600">*</span>
@@ -313,7 +274,6 @@ export default function SignupPage() {
                 />
               </div>
 
-              {/* @ID 重複 / 形式チェックの状態表示 */}
               {usernameStatus === "checking" && (
                 <p className={`${typography("caption")} text-slate-500`}>
                   ID を確認中です…
@@ -335,7 +295,6 @@ export default function SignupPage() {
                 </p>
               )}
 
-              {/* 公開とURLの説明 ＋ ⓘホバーで詳細ルール */}
               <p className={`${typography("caption")} mt-2 text-slate-500`}>
                 @ID は公開プロフィールの URL に使用され、他のユーザーにも表示されます。
                 <br />
@@ -366,7 +325,6 @@ export default function SignupPage() {
                 </span>
               </p>
 
-              {/* プロフィールURL例（常時表示：URL は小文字、表示名は入力そのまま） */}
               <p className={`${typography("caption")} mt-1 text-slate-500`}>
                 プロフィールURL例：
                 <span className="font-mono">
@@ -376,13 +334,13 @@ export default function SignupPage() {
               </p>
             </div>
 
-            {/* ロール選択 */}
             <div>
               <label className={`${typography("body")} mb-1 block text-sm`}>
                 ロール <span className="text-red-600">*</span>
               </label>
+
               <div className="space-y-1 text-sm">
-                {(Object.keys(ROLE_LABEL_JA) as ProfileRole[]).map((r) => (
+                {selectableRoles.map((r) => (
                   <label
                     key={r}
                     className="flex cursor-pointer items-center gap-2"
@@ -398,9 +356,12 @@ export default function SignupPage() {
                   </label>
                 ))}
               </div>
+
+              <p className={`${typography("caption")} mt-2 text-slate-500`}>
+                ※ 公式アカウントは運営が付与します（登録時には選べません）。
+              </p>
             </div>
 
-            {/* ボタン＆メッセージ */}
             <div className="pt-2 space-y-2">
               <Button type="submit" className="w-full" disabled={loading}>
                 {loading ? "登録中..." : "登録する"}

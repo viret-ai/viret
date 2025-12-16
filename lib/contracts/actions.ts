@@ -29,6 +29,28 @@ function getExtFromFileName(name: string): string {
   return ext || "bin";
 }
 
+// // delivered_ext 確定：file_path から拡張子（"."無し・小文字）を抽出
+function normalizeExtFromPath(filePath: string): string | null {
+  const base = (filePath ?? "").trim();
+  const lastDot = base.lastIndexOf(".");
+  if (lastDot <= 0) return null;
+
+  const ext = base.slice(lastDot + 1).trim().toLowerCase();
+  if (!ext) return null;
+
+  // // DBのCHKと合わせる：英数字のみ、1〜10
+  if (!/^[a-z0-9]{1,10}$/.test(ext)) return null;
+  return ext;
+}
+
+// // required_ext 比較用（"."除去・小文字）
+function normalizeExtLoose(ext: string | null | undefined): string | null {
+  if (!ext) return null;
+  const v = ext.trim().replace(/^\./, "").toLowerCase();
+  if (!v) return null;
+  return v;
+}
+
 export async function uploadDeliveryFile(args: {
   jobId: string;
   ownerId: string;
@@ -63,8 +85,36 @@ export async function postDelivery(args: {
   version: number;
   filePath: string;
   note: string;
+
+  // // v1.1: 追加ログ（呼び出し側が渡せる場合だけ入る。未対応でも壊さない）
+  mimeType?: string | null;
+  deliveredExt?: string | null;
 }): Promise<Result> {
   const supabase = await supabaseServer();
+
+  // ---- 0) required_ext を確認（あるなら一致必須） ----
+  const jobRes = await supabase
+    .from("jobs")
+    .select("id, required_ext")
+    .eq("id", args.jobId)
+    .maybeSingle<{ id: string; required_ext: string | null }>();
+
+  if (jobRes.error) return { ok: false, error: jobRes.error.message };
+  if (!jobRes.data) return { ok: false, error: "契約ジョブが見つかりません。" };
+
+  const requiredExt = normalizeExtLoose(jobRes.data.required_ext);
+  const deliveredExt =
+    normalizeExtLoose(args.deliveredExt ?? null) ??
+    normalizeExtFromPath(args.filePath);
+
+  if (requiredExt && deliveredExt !== requiredExt) {
+    return {
+      ok: false,
+      error: `拡張子が一致しません（必須: ${requiredExt} / 今回: ${
+        deliveredExt ?? "不明"
+      }）`,
+    };
+  }
 
   // 1) 納品履歴
   const ins = await supabase.from("job_deliveries").insert({
@@ -73,6 +123,10 @@ export async function postDelivery(args: {
     version: args.version,
     file_path: args.filePath,
     note: args.note || null,
+
+    // // 追加カラム（今回）
+    delivered_ext: deliveredExt,
+    mime_type: args.mimeType ?? null,
   });
 
   if (ins.error) return { ok: false, error: ins.error.message };

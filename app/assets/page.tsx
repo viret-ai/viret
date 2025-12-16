@@ -1,111 +1,162 @@
 // =====================================
 // app/assets/page.tsx
-// ストックサイト風素材一覧（テーマ連動）
+// ストックサイト風素材一覧（検索 + タグ絞り込み対応）
+// - 一覧起点の詳細は「/assets?view=<id>」で“同一ページ上のオーバーレイ”
+// - URL直/プロフ起点は /assets/[id]（別ページ）
 // =====================================
 
 import Link from "next/link";
 import { supabaseServer } from "@/lib/supabase-server";
-import { getAssetPublicUrl } from "@/lib/storage";
 import { typography } from "@/lib/theme";
+import AssetsSearchBar from "@/components/assets/AssetsSearchBar";
+import AssetsList from "@/components/assets/AssetsList.client";
+import { searchAssets } from "@/lib/assets/searchAssets";
+import { getSeasonalTagCandidates } from "@/lib/assets/seasonalTags";
+import { getTagPicks } from "@/lib/assets/tagPicks";
+import AssetDetailModal from "@/components/assets/AssetDetailModal.client";
+import AssetDetailContent from "@/components/assets/AssetDetailContent";
 
-type AssetRow = {
-  id: string;
-  title: string | null;
-  preview_path: string | null;
-  created_at: string;
-  status: string;
+type SearchParams = {
+  q?: string | string[];
+  tags?: string | string[];
+  view?: string | string[];
 };
 
-export default async function AssetsPage() {
-  // 🔹 Next.js 16 用：Supabase クライアントを await で取得
-  const supabase = await supabaseServer();
+function toSingle(v: string | string[] | undefined): string {
+  if (!v) return "";
+  return Array.isArray(v) ? v[0] ?? "" : v;
+}
 
-  const { data, error } = await supabase
-    .from("assets")
-    .select("id, title, preview_path, created_at, status")
-    .eq("status", "public")
-    .order("created_at", { ascending: true });
+function parseTagsParam(v: string | string[] | undefined): string[] {
+  const raw = toSingle(v).trim();
+  if (!raw) return [];
+  return raw
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+const PAGE_SIZE = 100;
+
+export default async function AssetsPage({
+  searchParams,
+}: {
+  searchParams: Promise<SearchParams>;
+}) {
+  const supabase = await supabaseServer();
+  const sp = await searchParams;
+
+  const q = toSingle(sp.q).trim();
+  const selectedTags = parseTagsParam(sp.tags);
+  const viewId = toSingle(sp.view).trim();
+
+  const { seasonalTags, popularTags } = await getTagPicks({
+    supabase,
+    seasonalCandidates: getSeasonalTagCandidates(new Date()),
+  });
+
+  const { assets, totalCount, error } = await searchAssets({
+    supabase,
+    q,
+    tags: selectedTags,
+    limit: PAGE_SIZE,
+    offset: 0,
+  });
 
   if (error) {
     console.error("[assets] fetch error", error);
   }
 
-  const assets: AssetRow[] = (data as AssetRow[] | null) ?? [];
+  const hasCondition = q !== "" || selectedTags.length > 0;
 
   return (
     <main className="min-h-screen bg-[var(--v-bg)] text-[var(--v-text)]">
       <div className="mx-auto max-w-[1400px] px-4 py-6">
-        {/* 見出し typography */}
         <h1 className={typography("h1")}>素材一覧</h1>
 
-        {/* データなし */}
+        <nav className="mt-2 flex flex-wrap items-center gap-2 text-[12px]">
+          <Link href="/assets" className="opacity-70 hover:opacity-100 underline">
+            素材一覧
+          </Link>
+
+          {q && (
+            <>
+              <span className="opacity-40">/</span>
+              <span className="opacity-80">
+                「{q}」
+                <Link
+                  href={`/assets?tags=${selectedTags.join(",")}`}
+                  className="ml-1 opacity-60 hover:opacity-100 underline"
+                  title="検索語を解除"
+                >
+                  ×
+                </Link>
+              </span>
+            </>
+          )}
+
+          {selectedTags.map((tag) => (
+            <span key={tag} className="flex items-center gap-1">
+              <span className="opacity-40">/</span>
+              <span className="opacity-80">
+                #{tag}
+                <Link
+                  href={`/assets${q ? `?q=${encodeURIComponent(q)}` : ""}`}
+                  className="ml-1 opacity-60 hover:opacity-100 underline"
+                  title="タグを解除"
+                >
+                  ×
+                </Link>
+              </span>
+            </span>
+          ))}
+        </nav>
+
+        <div className="mt-4">
+          <AssetsSearchBar
+            initialQuery={q}
+            selectedTags={selectedTags}
+            seasonalTags={seasonalTags}
+            popularTags={popularTags}
+          />
+        </div>
+
+        <div className="mt-4 flex w-full items-center justify-end text-[13px]">
+          <span className="opacity-70">
+            {hasCondition
+              ? `条件に一致する素材：${totalCount} 件`
+              : `公開中の素材：${totalCount} 件`}
+          </span>
+        </div>
+
         {assets.length === 0 ? (
-          <div className="mt-16 text-center">
+          <div className="mt-12 text-center">
             <p className={typography("body") + " opacity-60"}>
-              まだ素材がありません。
+              {hasCondition
+                ? "条件に一致する素材がありません。"
+                : "まだ素材がありません。"}
             </p>
           </div>
         ) : (
-          <div className="mt-4 flex flex-wrap gap-2">
-            {assets.map((item) => {
-              const url = item.preview_path
-                ? getAssetPublicUrl(item.preview_path)
-                : null;
-
-              return (
-                <Link
-                  key={item.id}
-                  href={`/assets/${item.id}`}
-                  className="
-                    group relative flex-none
-                    h-40 sm:h-44 md:h-52 lg:h-56
-                    overflow-hidden
-                    bg-slate-100 dark:bg-slate-800
-                    rounded-none
-                  "
-                >
-                  {/* サムネイル */}
-                  {url && (
-                    <img
-                      src={url}
-                      alt={item.title || "asset preview"}
-                      className="
-                        h-full w-auto max-w-none
-                        object-contain
-                        transition-transform duration-300
-                        group-hover:scale-[1.03]
-                      "
-                    />
-                  )}
-
-                  {/* タイトルオーバーレイ */}
-                  <div
-                    className="
-                      pointer-events-none
-                      absolute inset-x-0 bottom-0
-                      flex items-end
-                      bg-gradient-to-t from-black/70 via-black/30 to-transparent
-                      px-2 pb-1.5 pt-8
-                      opacity-0
-                      transition-opacity duration-200
-                      group-hover:opacity-100
-                    "
-                  >
-                    <span
-                      className="
-                        line-clamp-2 text-[11px] font-semibold text-white
-                        drop-shadow-sm
-                      "
-                    >
-                      {item.title || "タイトル未設定"}
-                    </span>
-                  </div>
-                </Link>
-              );
-            })}
+          <div className="mt-4">
+            <AssetsList
+              initialAssets={assets}
+              totalCount={totalCount}
+              q={q}
+              tags={selectedTags}
+              pageSize={PAGE_SIZE}
+              viewMode="scroll"
+            />
           </div>
         )}
       </div>
+
+      {/* ✅ 一覧起点モーダル（同一ページ上のオーバーレイ） */}
+      {viewId && (
+        <AssetDetailModal title="素材詳細">
+          <AssetDetailContent assetId={viewId} showBreadcrumbs={false} />
+        </AssetDetailModal>
+      )}
     </main>
   );
 }

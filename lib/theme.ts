@@ -11,6 +11,9 @@ export type ShadowToken = "none" | "xs" | "sm" | "md";
 // 見出し・本文などのバリアント
 export type TypographyVariant = "h1" | "h2" | "h3" | "body" | "caption";
 
+// ✅ ボタン（リンク含む）を“黒文字基本”で統一するためのバリアント
+export type ButtonVariant = "outline" | "ghost" | "soft" | "dangerOutline";
+
 type TypographyConfig = {
   // headingFont / bodyFont のどちらを使うか
   font: "heading" | "body";
@@ -27,29 +30,46 @@ type TypographyConfig = {
 type ThemeConfig = {
   headingFont: string;
   bodyFont: string;
+
   colors: {
+    // ページ背景
     lightBg: string;
     darkBg: string;
+
+    // テキスト色
     lightText: string;
     darkText: string;
+
+    // カード背景
     lightCardBg: string;
     darkCardBg: string;
+
+    // ✅ UI用（枠線/hoverなど）
+    lightBorder: string;
+    darkBorder: string;
+    lightHoverBg: string;
+    darkHoverBg: string;
   };
+
   // ページ全体で使う基本角丸
   cornerRadius: RadiusToken;
+
   radius: {
     card: RadiusToken;
     button: RadiusToken;
     input: RadiusToken;
     modal: RadiusToken;
   };
+
   shadows: {
     card: ShadowToken;
     overlay: ShadowToken;
   };
+
   spacing: {
     cardPadding: string; // 例: "p-4"
   };
+
   typography: Record<TypographyVariant, TypographyConfig>;
 };
 
@@ -74,6 +94,12 @@ export const themeConfig: ThemeConfig = {
     // カード背景
     lightCardBg: "#ffffff",
     darkCardBg: "#0b1120", // slate-900 より少し暗め
+
+    // ✅ UI（枠線/hover）
+    lightBorder: "rgba(0,0,0,0.10)",
+    darkBorder: "rgba(255,255,255,0.10)",
+    lightHoverBg: "rgba(0,0,0,0.05)",
+    darkHoverBg: "rgba(255,255,255,0.10)",
   },
 
   // 基本角丸（全体ポリシー：sm = rounded）
@@ -183,17 +209,11 @@ export function resolveShadowClass(token: ShadowToken): string {
 
 export function getTypographyClasses(variant: TypographyVariant): string {
   const t = themeConfig.typography[variant];
-  return [
-    t.sizeClass,
-    t.weightClass,
-    t.trackingClass,
-    t.leadingClass,
-  ]
+  return [t.sizeClass, t.weightClass, t.trackingClass, t.leadingClass]
     .filter(Boolean)
     .join(" ");
 }
 
-// 見出し/本文ごとに font-family を選択するための style オブジェクト
 export function getTypographyStyle(
   variant: TypographyVariant,
 ): { fontFamily: string } {
@@ -205,12 +225,60 @@ export function getTypographyStyle(
 
 // =====================================
 // typography() ヘルパー
-// - .font-heading / .font-body と組み合わせた
-//   完成済み className を返すショートカット
 // =====================================
 
 export function typography(variant: TypographyVariant): string {
   const t = themeConfig.typography[variant];
   const fontClass = t.font === "heading" ? "font-heading" : "font-body";
   return [fontClass, getTypographyClasses(variant)].filter(Boolean).join(" ");
+}
+
+// =====================================
+// ✅ button() ヘルパー
+// - 「基本黒文字＋枠」をデフォルトにして事故を潰す
+// - 既存の bg-[var(--v-accent)] / text-white を避ける
+// =====================================
+
+export function button(variant: ButtonVariant = "outline"): string {
+  const base = [
+    "inline-flex items-center justify-center",
+    resolveRadiusClass(themeConfig.radius.button),
+    "px-4 py-2",
+    "text-sm font-semibold",
+    // ✅ 基本は“前景色”で読む（ライト=黒、ダーク=白寄り）
+    "text-[var(--v-text)]",
+    "transition-colors",
+    "select-none",
+  ].join(" ");
+
+  switch (variant) {
+    case "outline":
+      return [
+        base,
+        "border border-black/10 dark:border-white/10",
+        "hover:bg-black/5 dark:hover:bg-white/10",
+      ].join(" ");
+
+    case "ghost":
+      return [base, "hover:bg-black/5 dark:hover:bg-white/10"].join(" ");
+
+    case "soft":
+      return [
+        base,
+        "border border-black/10 dark:border-white/10",
+        "bg-black/5 dark:bg-white/10",
+        "hover:bg-black/10 dark:hover:bg-white/15",
+      ].join(" ");
+
+    case "dangerOutline":
+      return [
+        base,
+        "border border-red-300 dark:border-red-500/50",
+        "text-red-700 dark:text-red-200",
+        "hover:bg-red-50 dark:hover:bg-red-500/10",
+      ].join(" ");
+
+    default:
+      return base;
+  }
 }
