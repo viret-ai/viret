@@ -44,6 +44,10 @@ export default async function DashboardPage() {
   let profileErrorText = "";
   let createdNow = false;
 
+  // コイン残高（Server側で計算）
+  let coinBalance = 0;
+  let coinErrorText = "";
+
   if (user) {
     const { data: existing, error: profileError } = await supabase
       .from("profiles")
@@ -79,6 +83,21 @@ export default async function DashboardPage() {
         profile = inserted as ProfileRow;
         createdNow = true;
       }
+    }
+
+    // ---- coin balance（coin_ledgerの合計）----
+    // NOTE: RPCに依存しない。RLSが厳しい場合はここで弾かれる（その場合はエラー表示）
+    const { data: rows, error: coinErr } = await supabase
+      .from("coin_ledger")
+      .select("delta_coins")
+      .eq("user_id", user.id);
+
+    if (coinErr) {
+      coinErrorText = JSON.stringify(coinErr, null, 2);
+      coinBalance = 0;
+    } else {
+      coinBalance =
+        (rows ?? []).reduce((sum: number, r: any) => sum + (r?.delta_coins ?? 0), 0) ?? 0;
     }
   }
 
@@ -191,7 +210,10 @@ export default async function DashboardPage() {
                 <div>
                   <dt className={typography("caption")}>コイン残高</dt>
                   <dd className={typography("body")}>
-                    <span className="font-mono">0</span> コイン
+                    <span className="font-mono tabular-nums">
+                      {coinBalance.toLocaleString()}
+                    </span>{" "}
+                    コイン
                     <Link
                       href="/coins"
                       className="ml-3 underline text-slate-900 dark:text-slate-100"
@@ -333,6 +355,17 @@ export default async function DashboardPage() {
                   </summary>
                   <pre className="mt-2 overflow-x-auto rounded bg-black/80 p-3 text-xs text-green-200">
                     {JSON.stringify(profile, null, 2)}
+                  </pre>
+                </details>
+              )}
+
+              {!!coinErrorText && (
+                <details className="mt-4">
+                  <summary className="cursor-pointer text-sm text-red-600">
+                    coin_ledger 残高取得エラー
+                  </summary>
+                  <pre className="mt-2 overflow-x-auto rounded bg-black/80 p-3 text-xs text-red-200">
+                    {coinErrorText}
                   </pre>
                 </details>
               )}

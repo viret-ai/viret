@@ -1,16 +1,35 @@
 // =====================================
 // components/layout/Header.tsx
-// サイト共通ヘッダー（シンプルナビ）
-// - 認証状態は見ず、リンクだけを表示
-// - 左：パンくず（Home / ...）
-// - 右：ログイン・登録・Style Guide
-// - 背景/枠は端まで、内容だけ中央カラム＋sidebar-slot分だけ内側に寄せる
+// サイト共通ヘッダー（ログイン + コイン残高表示）
+// - 左：パンくず
+// - 右：ログイン中ユーザー（Avatar / Name）＋ 所持コイン（🪙1,000）
+// - ゲスト：ゲスト表示＋ログイン/新規登録導線
 // =====================================
 
 "use client";
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
+import { supabase } from "@/lib/supabase";
+import Avatar from "@/components/ui/Avatar";
+
+type ViewerProfile = {
+  id: string;
+  handle: string;
+  display_name: string | null;
+  avatar_url: string | null;
+};
+
+type ViewerState =
+  | { kind: "loading" }
+  | { kind: "guest" }
+  | {
+      kind: "user";
+      userId: string;
+      profile: ViewerProfile | null;
+      coinBalance: number;
+    };
 
 function buildCrumbs(pathname: string) {
   const clean = (pathname || "/").split("?")[0] || "/";
@@ -29,7 +48,132 @@ function buildCrumbs(pathname: string) {
 
 export default function Header() {
   const pathname = usePathname();
-  const crumbs = buildCrumbs(pathname);
+  const crumbs = useMemo(() => buildCrumbs(pathname), [pathname]);
+
+  const [viewer, setViewer] = useState<ViewerState>({ kind: "loading" });
+
+  const loadViewer = async () => {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
+    if (!session?.user?.id) {
+      setViewer({ kind: "guest" });
+      return;
+    }
+
+    const userId = session.user.id;
+
+    // profile（失敗しても落とさない）
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("id, handle, display_name, avatar_url")
+      .eq("id", userId)
+      .maybeSingle<ViewerProfile>();
+
+    // coin balance（APIで取得：RLS/RPCに依存しない）
+    let coinBalance = 0;
+    try {
+      const res = await fetch("/api/coins/balance", { cache: "no-store" });
+      if (res.ok) {
+        const json = (await res.json()) as any;
+        if (json?.ok && typeof json.balance === "number") {
+          coinBalance = json.balance;
+        }
+      }
+    } catch {
+      // 失敗時は0のまま（落とさない）
+    }
+
+    setViewer({
+      kind: "user",
+      userId,
+      profile: profile ?? null,
+      coinBalance,
+    });
+  };
+
+  useEffect(() => {
+    loadViewer();
+
+    const { data: sub } = supabase.auth.onAuthStateChange(() => {
+      loadViewer();
+    });
+
+    return () => {
+      sub.subscription.unsubscribe();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const right = (() => {
+    if (viewer.kind === "loading") {
+      return (
+        <div className="flex items-center gap-3 text-[12px] opacity-70">
+          <span className="inline-flex h-7 w-7 items-center justify-center border border-black/10 dark:border-white/10 text-[11px]">
+            …
+          </span>
+        </div>
+      );
+    }
+
+    if (viewer.kind === "guest") {
+      return (
+        <div className="flex items-center gap-3 text-[12px] opacity-80">
+          <div className="flex items-center gap-2">
+            <Avatar src={null} size={28} alt="ゲスト" />
+            <span>ゲスト</span>
+          </div>
+
+          <Link href="/login" className="underline hover:opacity-100">
+            ログイン
+          </Link>
+          <Link href="/signup" className="underline hover:opacity-100">
+            新規登録
+          </Link>
+
+          {process.env.NODE_ENV === "development" && (
+            <Link href="/style-guide" className="underline hover:opacity-100">
+              Style Guide
+            </Link>
+          )}
+        </div>
+      );
+    }
+
+    // viewer.kind === "user"
+    const profile = viewer.profile;
+    const displayName =
+      profile?.display_name || (profile?.handle ? `@${profile.handle}` : "ユーザー");
+    const profileHref = profile?.handle ? `/profile/${profile.handle}` : "/dashboard";
+
+    return (
+      <div className="flex items-center gap-3 text-[12px] opacity-80">
+        {/* 所持コイン */}
+        <div
+          className="
+            inline-flex items-center gap-1
+            px-2 py-1
+            border border-black/10 dark:border-white/10
+            text-[11px]
+          "
+          title="現在の所持コイン"
+        >
+          <span aria-hidden>🪙</span>
+          <span className="tabular-nums">{viewer.coinBalance.toLocaleString()}</span>
+        </div>
+
+        <Link href={profileHref} className="flex items-center gap-2 hover:opacity-100">
+          <Avatar
+            src={profile?.avatar_url ?? null}
+            size={28}
+            alt={`${displayName} のアイコン`}
+          />
+          <span className="max-w-[12rem] truncate">{displayName}</span>
+        </Link>
+      </div>
+    );
+  })();
 
   return (
     <header
@@ -41,7 +185,6 @@ export default function Header() {
         backdrop-blur
       "
     >
-      {/* // sidebar-slot 分だけ左右を確保して、サイドバー下に潜らないようにする */}
       <div
         className="
           h-full w-full
@@ -49,7 +192,6 @@ export default function Header() {
           pr-[var(--v-sidebar-slot)]
         "
       >
-        {/* // 中身だけ中央カラム幅に収める（lg 以降だけ min） */}
         <div
           className="
             mx-auto h-full w-full
@@ -71,34 +213,8 @@ export default function Header() {
             ))}
           </nav>
 
-          {/* 右：仮のアカウント領域（あとで置き換え） */}
-          <div className="flex items-center gap-3 text-[12px] opacity-80">
-            <span
-              className="
-                inline-flex h-7 w-7 items-center justify-center
-                rounded-full border border-black/10 dark:border-white/10
-                bg-white/70 dark:bg-slate-950/40
-                text-[11px]
-              "
-              title="ゲスト"
-            >
-              U
-            </span>
-
-            <Link href="/login" className="underline hover:opacity-100">
-              ログイン
-            </Link>
-            <Link href="/signup" className="underline hover:opacity-100">
-              新規登録
-            </Link>
-
-            {/* // 開発時のみ */}
-            {process.env.NODE_ENV === "development" && (
-              <Link href="/style-guide" className="underline hover:opacity-100">
-                Style Guide
-              </Link>
-            )}
-          </div>
+          {/* 右：アカウント領域 */}
+          {right}
         </div>
       </div>
     </header>

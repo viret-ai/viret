@@ -2,6 +2,8 @@
 // lib/theme.ts
 // Viret テーマ設定（色 / 角丸 / 影 / 余白 / タイポグラフィ）
 // - Card / Button / Typography が参照する共通トークン
+// - 色コードは 8桁HEX（#RRGGBBAA）“のみ”
+// - 有彩色は「意味色」トークンとして用意（最終値はVoidが眼鏡チェックで確定）
 // =====================================
 
 // 角丸・影トークン
@@ -11,19 +13,14 @@ export type ShadowToken = "none" | "xs" | "sm" | "md";
 // 見出し・本文などのバリアント
 export type TypographyVariant = "h1" | "h2" | "h3" | "body" | "caption";
 
-// ✅ ボタン（リンク含む）を“黒文字基本”で統一するためのバリアント
+// ボタンバリアント
 export type ButtonVariant = "outline" | "ghost" | "soft" | "dangerOutline";
 
 type TypographyConfig = {
-  // headingFont / bodyFont のどちらを使うか
   font: "heading" | "body";
-  // Tailwind のサイズクラス（例: text-2xl）
   sizeClass: string;
-  // 太さ（例: font-semibold）
   weightClass: string;
-  // 字間（任意）
   trackingClass?: string;
-  // 行間（任意）
   leadingClass?: string;
 };
 
@@ -32,26 +29,41 @@ type ThemeConfig = {
   bodyFont: string;
 
   colors: {
-    // ページ背景
+    // 背景
     lightBg: string;
     darkBg: string;
 
-    // テキスト色
+    // テキスト
     lightText: string;
     darkText: string;
 
-    // カード背景
+    // 補足テキスト
+    lightMutedText: string;
+    darkMutedText: string;
+
+    // カード
     lightCardBg: string;
     darkCardBg: string;
 
-    // ✅ UI用（枠線/hoverなど）
+    // UI
     lightBorder: string;
     darkBorder: string;
     lightHoverBg: string;
     darkHoverBg: string;
+    lightDisabledBg: string;
+    darkDisabledBg: string;
+
+    // 意味色（※仮）
+    lightAccent: string;
+    darkAccent: string;
+    lightSuccess: string;
+    darkSuccess: string;
+    lightWarning: string;
+    darkWarning: string;
+    lightDanger: string;
+    darkDanger: string;
   };
 
-  // ページ全体で使う基本角丸
   cornerRadius: RadiusToken;
 
   radius: {
@@ -67,64 +79,72 @@ type ThemeConfig = {
   };
 
   spacing: {
-    cardPadding: string; // 例: "p-4"
+    cardPadding: string;
   };
 
   typography: Record<TypographyVariant, TypographyConfig>;
 };
 
 export const themeConfig: ThemeConfig = {
-  // 見出し用フォント
   headingFont:
     '"Noto Sans JP", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
-  // 本文用フォント
   bodyFont:
     '"Noto Sans JP", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
 
-  // ライト / ダーク用の基本カラー
   colors: {
-    // ページ背景
-    lightBg: "#f8fafc", // slate-50 付近
-    darkBg: "#020617", // slate-950 付近
+    // 背景
+    lightBg: "#F8FAFCFF",
+    darkBg: "#020617FF",
 
-    // テキスト色
-    lightText: "#0f172a", // slate-900
-    darkText: "#e5e7eb", // gray-200
+    // テキスト
+    lightText: "#0F172AFF",
+    darkText: "#E5E7EBFF",
 
-    // カード背景
-    lightCardBg: "#ffffff",
-    darkCardBg: "#0b1120", // slate-900 より少し暗め
+    // 補足
+    lightMutedText: "#64748BFF",
+    darkMutedText: "#94A3B8FF",
 
-    // ✅ UI（枠線/hover）
-    lightBorder: "rgba(0,0,0,0.10)",
-    darkBorder: "rgba(255,255,255,0.10)",
-    lightHoverBg: "rgba(0,0,0,0.05)",
-    darkHoverBg: "rgba(255,255,255,0.10)",
+    // カード
+    lightCardBg: "#FFFFFFFF",
+    darkCardBg: "#0B1120FF",
+
+    // UI
+    lightBorder: "#0000001A",
+    darkBorder: "#FFFFFF1A",
+    lightHoverBg: "#0000000D",
+    darkHoverBg: "#FFFFFF1A",
+    lightDisabledBg: "#0000000D",
+    darkDisabledBg: "#FFFFFF1A",
+
+    // 意味色（仮・眼鏡で最終決定）
+    lightAccent: "#000000FF",
+    darkAccent: "#000000FF",
+    lightSuccess: "#000000FF",
+    darkSuccess: "#000000FF",
+    lightWarning: "#000000FF",
+    darkWarning: "#000000FF",
+    lightDanger: "#000000FF",
+    darkDanger: "#000000FF",
   },
 
-  // 基本角丸（全体ポリシー：sm = rounded）
-  cornerRadius: "sm",
+  cornerRadius: "none",
 
-  // 各コンポーネント用の角丸トークン
   radius: {
-    card: "sm",
-    button: "sm",
-    input: "sm",
-    modal: "sm",
+    card: "none",
+    button: "none",
+    input: "none",
+    modal: "none",
   },
 
-  // 影の強さ
   shadows: {
-    card: "sm",
-    overlay: "md",
+    card: "none",
+    overlay: "none",
   },
 
-  // 余白トークン
   spacing: {
     cardPadding: "p-4",
   },
 
-  // タイポグラフィ設定（H1/H2/H3/本文/キャプション）
   typography: {
     h1: {
       font: "heading",
@@ -163,7 +183,7 @@ export const themeConfig: ThemeConfig = {
 };
 
 // =====================================
-// 角丸トークン → Tailwind クラス
+// radius / shadow
 // =====================================
 
 export function resolveRadiusClass(token: RadiusToken): string {
@@ -179,13 +199,9 @@ export function resolveRadiusClass(token: RadiusToken): string {
     case "xl":
       return "rounded-xl";
     default:
-      return "rounded";
+      return "rounded-none";
   }
 }
-
-// =====================================
-// 影トークン → Tailwind クラス
-// =====================================
 
 export function resolveShadowClass(token: ShadowToken): string {
   switch (token) {
@@ -198,13 +214,12 @@ export function resolveShadowClass(token: ShadowToken): string {
     case "md":
       return "shadow-md";
     default:
-      return "shadow";
+      return "";
   }
 }
 
 // =====================================
-// タイポグラフィ用ヘルパー
-// - variant ごとの className / style を取得
+// typography
 // =====================================
 
 export function getTypographyClasses(variant: TypographyVariant): string {
@@ -218,25 +233,22 @@ export function getTypographyStyle(
   variant: TypographyVariant,
 ): { fontFamily: string } {
   const t = themeConfig.typography[variant];
-  const fontFamily =
-    t.font === "heading" ? themeConfig.headingFont : themeConfig.bodyFont;
-  return { fontFamily };
+  return {
+    fontFamily:
+      t.font === "heading"
+        ? themeConfig.headingFont
+        : themeConfig.bodyFont,
+  };
 }
-
-// =====================================
-// typography() ヘルパー
-// =====================================
 
 export function typography(variant: TypographyVariant): string {
   const t = themeConfig.typography[variant];
   const fontClass = t.font === "heading" ? "font-heading" : "font-body";
-  return [fontClass, getTypographyClasses(variant)].filter(Boolean).join(" ");
+  return [fontClass, getTypographyClasses(variant)].join(" ");
 }
 
 // =====================================
-// ✅ button() ヘルパー
-// - 「基本黒文字＋枠」をデフォルトにして事故を潰す
-// - 既存の bg-[var(--v-accent)] / text-white を避ける
+// button()
 // =====================================
 
 export function button(variant: ButtonVariant = "outline"): string {
@@ -245,37 +257,44 @@ export function button(variant: ButtonVariant = "outline"): string {
     resolveRadiusClass(themeConfig.radius.button),
     "px-4 py-2",
     "text-sm font-semibold",
-    // ✅ 基本は“前景色”で読む（ライト=黒、ダーク=白寄り）
     "text-[var(--v-text)]",
     "transition-colors",
     "select-none",
+    "disabled:opacity-60 disabled:cursor-not-allowed",
   ].join(" ");
 
   switch (variant) {
     case "outline":
       return [
         base,
-        "border border-black/10 dark:border-white/10",
-        "hover:bg-black/5 dark:hover:bg-white/10",
+        "border",
+        "border-[#0000001A] dark:border-[#FFFFFF1A]",
+        "hover:bg-[#0000000D] dark:hover:bg-[#FFFFFF1A]",
       ].join(" ");
 
     case "ghost":
-      return [base, "hover:bg-black/5 dark:hover:bg-white/10"].join(" ");
+      return [
+        base,
+        "hover:bg-[#0000000D] dark:hover:bg-[#FFFFFF1A]",
+      ].join(" ");
 
     case "soft":
       return [
         base,
-        "border border-black/10 dark:border-white/10",
-        "bg-black/5 dark:bg-white/10",
-        "hover:bg-black/10 dark:hover:bg-white/15",
+        "border",
+        "border-[#0000001A] dark:border-[#FFFFFF1A]",
+        "bg-[#0000000D] dark:bg-[#FFFFFF1A]",
+        "hover:bg-[#00000026] dark:hover:bg-[#FFFFFF26]",
       ].join(" ");
 
     case "dangerOutline":
       return [
         base,
-        "border border-red-300 dark:border-red-500/50",
-        "text-red-700 dark:text-red-200",
-        "hover:bg-red-50 dark:hover:bg-red-500/10",
+        "border",
+        // ✅ 意味色トークン参照（仮色でも構造を守る）
+        `border-[${themeConfig.colors.lightDanger}] dark:border-[${themeConfig.colors.darkDanger}]`,
+        `text-[${themeConfig.colors.lightDanger}] dark:text-[${themeConfig.colors.darkDanger}]`,
+        "hover:bg-[#0000000D] dark:hover:bg-[#FFFFFF1A]",
       ].join(" ");
 
     default:

@@ -2,15 +2,17 @@
 // app/api/assets/[id]/download/route.ts
 // 素材ダウンロード用 API（サイズ・フォーマット指定）
 // - Small:    短辺720px / 300dpi
-// - HD:       短辺1080px / 350dpi
+// - HD:       筗辺1080px / 350dpi
 // - Original: リサイズなし / 350dpi（DPIメタのみ）
 // - JPG / PNG / WebP 変換対応
 // - XMPメタデータに「assetId + @creator」を埋め込む
+// - DLログ（download_events）を user_id / guest_id で記録（失敗してもDLは通す）
 // =====================================
 
 import { NextRequest, NextResponse } from "next/server";
 import sharp from "sharp";
-import { supabaseServer } from "@/lib/supabase-server";
+import { cookies } from "next/headers";
+import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs";
 
 export const runtime = "nodejs";
 
@@ -20,6 +22,30 @@ type RouteParams = {
 
 type SizeOption = "sm" | "hd" | "original";
 type FormatOption = "jpg" | "png" | "webp";
+
+const GUEST_COOKIE = "viret_guest";
+
+function toUuidLike(v: string | null | undefined): string | null {
+  if (!v) return null;
+  const s = v.trim().toLowerCase();
+  // // v4/v5っぽい形ならOK（厳密じゃなくて十分）
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(s)) {
+    return null;
+  }
+  return s;
+}
+
+function ensureGuestId(existing: string | null | undefined): { guestId: string; isNew: boolean } {
+  const ok = toUuidLike(existing);
+  if (ok) return { guestId: ok, isNew: false };
+
+  // // nodejs runtime なので globalThis.crypto.randomUUID が使える想定
+  const guestId = globalThis.crypto?.randomUUID
+    ? globalThis.crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+  return { guestId, isNew: true };
+}
 
 export async function GET(req: NextRequest, context: RouteParams) {
   const { id } = await context.params;
@@ -37,7 +63,23 @@ export async function GET(req: NextRequest, context: RouteParams) {
     ? (formatParam as FormatOption)
     : "jpg";
 
-  const supabase = await supabaseServer();
+  // =====================================
+  // 0) Supabase（Route Handler Client）
+  // - ログイン判定（user_id）
+  // - DBアクセス
+  // - Storage download
+  // =====================================
+  const cookieStore = await cookies(); // Next.js16: cookies() は Promise
+  const supabase = createRouteHandlerClient({ cookies: () => cookieStore });
+
+  // user（ログインしてなくてもOK）
+  const {
+    data: { user },
+  } = await supabase.auth.getUser().catch(() => ({ data: { user: null as any } }));
+
+  // guest_id（未ログイン時のみ使う。ログイン時はuser_id優先）
+  const existingGuest = cookieStore.get(GUEST_COOKIE)?.value ?? null;
+  const { guestId, isNew } = ensureGuestId(existingGuest);
 
   // =====================================
   // 1) DB からアセット情報取得
@@ -53,7 +95,7 @@ export async function GET(req: NextRequest, context: RouteParams) {
         "preview_path",
         "width",
         "height",
-      ].join(","),
+      ].join(",")
     )
     .eq("id", assetId)
     .maybeSingle();
@@ -80,21 +122,21 @@ export async function GET(req: NextRequest, context: RouteParams) {
     return new NextResponse("File path not available", { status: 404 });
   }
 
-  // クリエイターの @username を取得
-  let creatorUsername: string | null = null;
+  // クリエイターの @handle を取得（username は廃止済み）
+  let creatorHandle: string | null = null;
 
   if (asset.owner_id) {
     const { data: profile } = await supabase
       .from("profiles")
-      .select("username")
+      .select("handle")
       .eq("id", asset.owner_id)
       .maybeSingle();
 
-    creatorUsername = profile?.username ?? null;
+    creatorHandle = profile?.handle ?? null;
   }
 
-  const creatorTag = creatorUsername
-    ? `@${creatorUsername}`
+  const creatorTag = creatorHandle
+    ? `@${creatorHandle}`
     : asset.owner_id
     ? `creator_${asset.owner_id.slice(0, 8)}`
     : "unknown_creator";
@@ -127,10 +169,7 @@ export async function GET(req: NextRequest, context: RouteParams) {
       width = meta.width;
       height = meta.height;
       try {
-        await supabase
-          .from("assets")
-          .update({ width, height })
-          .eq("id", assetId);
+        await supabase.from("assets").update({ width, height }).eq("id", assetId);
       } catch {
         // backfill 失敗は致命的でないので無視
       }
@@ -141,9 +180,7 @@ export async function GET(req: NextRequest, context: RouteParams) {
   const originalHeight = height ?? meta.height ?? null;
 
   if (!originalWidth || !originalHeight) {
-    return new NextResponse("Could not determine image size", {
-      status: 500,
-    });
+    return new NextResponse("Could not determine image size", { status: 500 });
   }
 
   const shortEdge = Math.min(originalWidth, originalHeight);
@@ -198,21 +235,14 @@ export async function GET(req: NextRequest, context: RouteParams) {
   // フォーマット変換
   switch (format) {
     case "png":
-      pipeline = pipeline.png({
-        compressionLevel: 9,
-      });
+      pipeline = pipeline.png({ compressionLevel: 9 });
       break;
     case "webp":
-      pipeline = pipeline.webp({
-        quality: 95,
-      });
+      pipeline = pipeline.webp({ quality: 95 });
       break;
     case "jpg":
     default:
-      pipeline = pipeline.jpeg({
-        quality: 95,
-        chromaSubsampling: "4:4:4",
-      });
+      pipeline = pipeline.jpeg({ quality: 95, chromaSubsampling: "4:4:4" });
       break;
   }
 
@@ -220,32 +250,61 @@ export async function GET(req: NextRequest, context: RouteParams) {
 
   const ext = format === "jpg" ? "jpg" : format;
   const contentType =
-    ext === "jpg"
-      ? "image/jpeg"
-      : ext === "png"
-      ? "image/png"
-      : "image/webp";
+    ext === "jpg" ? "image/jpeg" : ext === "png" ? "image/png" : "image/webp";
+
+  // =====================================
+  // 5) DLログ（失敗してもDLは通す）
+  // =====================================
+  try {
+    // // 未ログインなら guest_id で記録。ログイン時は user_id のみ入れる。
+    const actorUserId = user?.id ?? null;
+    const actorGuestId = actorUserId ? null : guestId;
+
+    await supabase.from("download_events").insert({
+      asset_id: assetId,
+      user_id: actorUserId,
+      guest_id: actorGuestId,
+      kind: "free",
+      coins: 0,
+      ref: {
+        size,
+        format: ext,
+        flow: "download_api_v1",
+        // // 将来ここに adProvider / watchedSec などを足す
+      },
+    });
+  } catch (e) {
+    console.error("download_events insert failed:", e);
+  }
 
   // ファイル名を安全な形に整形
   const safeTitle =
     typeof asset.title === "string" && asset.title.trim().length > 0
-      ? asset.title
-          .trim()
-          .slice(0, 64)
-          .replace(/[/\\:*?"<>|]/g, "_")
+      ? asset.title.trim().slice(0, 64).replace(/[/\\:*?"<>|]/g, "_")
       : `asset-${assetId}`;
 
   const fileName = `${safeTitle}-${size}.${ext}`;
 
-  return new NextResponse(outputBuffer, {
+  const res = new NextResponse(outputBuffer, {
     status: 200,
     headers: {
       "Content-Type": contentType,
       "Content-Length": outputBuffer.length.toString(),
-      "Content-Disposition": `attachment; filename="${encodeURIComponent(
-        fileName,
-      )}"`,
+      "Content-Disposition": `attachment; filename="${encodeURIComponent(fileName)}"`,
       "Cache-Control": "public, max-age=31536000, immutable",
     },
   });
+
+  // // ゲストcookieが無ければここで発行（ログイン時でも「閲覧者の識別」用途に残してOK）
+  if (isNew) {
+    res.cookies.set(GUEST_COOKIE, guestId, {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: true,
+      path: "/",
+      maxAge: 60 * 60 * 24 * 365, // 1年
+    });
+  }
+
+  return res;
 }
