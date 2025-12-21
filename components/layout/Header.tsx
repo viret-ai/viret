@@ -4,6 +4,7 @@
 // - 左：パンくず
 // - 右：ログイン中ユーザー（Avatar / Name）＋ 所持コイン（🪙1,000）
 // - ゲスト：ゲスト表示＋ログイン/新規登録導線
+// - NOTE: "viret:coins" イベントで残高再fetch（即時反映）
 // =====================================
 
 "use client";
@@ -100,8 +101,15 @@ export default function Header() {
       loadViewer();
     });
 
+    // // コイン即時反映：購入/消費後に window.dispatchEvent(new Event("viret:coins"))
+    const onCoins = () => {
+      loadViewer();
+    };
+    window.addEventListener("viret:coins", onCoins as EventListener);
+
     return () => {
       sub.subscription.unsubscribe();
+      window.removeEventListener("viret:coins", onCoins as EventListener);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

@@ -1,22 +1,66 @@
 // =====================================
 // app/coins/page.tsx
-// コイン購入ページ
-// - 現金 → コインの変換レートを説明
-// - あらかじめ用意した金額プランを一覧表示
-// - 購入ボタンはひとまずダミー（後で Stripe と接続）
+// コイン購入ページ（v0：モック購入で台帳反映）
+// - 固定プランを一覧表示（lib/coin-plans）
+// - ボタン押下 → payouts insert → coin_ledger insert（RPC）
 // - Viret内はすべて税込表記で統一
 // =====================================
 
+"use client";
+
+import { useMemo, useState } from "react";
 import Card from "@/components/ui/Card";
 import { typography } from "@/lib/theme";
 import { COIN_RATE_YEN_PER_COIN, COIN_UNIT_LABEL, yenToCoins } from "@/lib/coins";
 import { COIN_PLANS } from "@/lib/coin-plans";
 
+type UiState =
+  | { kind: "idle" }
+  | { kind: "loading"; planId: string }
+  | { kind: "success"; message: string }
+  | { kind: "error"; message: string };
+
 export default function CoinPurchasePage() {
+  const [ui, setUi] = useState<UiState>({ kind: "idle" });
+  const plans = useMemo(() => COIN_PLANS, []);
+
+  const onBuy = async (planId: string) => {
+    setUi({ kind: "loading", planId });
+
+    try {
+      const res = await fetch("/api/payouts/mock-purchase", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ planId }),
+      });
+
+      const json = (await res.json()) as any;
+
+      if (!res.ok || !json?.ok) {
+        const msg = json?.error ? String(json.error) : "FAILED";
+        const detail = json?.detail ? ` / ${String(json.detail)}` : "";
+        setUi({ kind: "error", message: `購入処理に失敗しました: ${msg}${detail}` });
+        return;
+      }
+
+      const coinsGranted = typeof json.coinsGranted === "number" ? json.coinsGranted : 0;
+      const balance = typeof json.balance === "number" ? json.balance : 0;
+
+      // Header に「残高更新して」を通知（Header側は "viret:coins" を listen）
+      window.dispatchEvent(new Event("viret:coins"));
+
+      setUi({
+        kind: "success",
+        message: `+${coinsGranted.toLocaleString()}${COIN_UNIT_LABEL} 付与しました（現在: ${balance.toLocaleString()}${COIN_UNIT_LABEL}）`,
+      });
+    } catch {
+      setUi({ kind: "error", message: "購入処理に失敗しました: NETWORK_ERROR" });
+    }
+  };
+
   return (
     <main className="min-h-screen bg-[var(--v-bg)] text-[var(--v-text)] px-4 py-10">
       <div className="mx-auto flex max-w-4xl flex-col gap-8">
-        {/* ヘッダー */}
         <header className="space-y-3">
           <div className="text-[11px] text-[var(--v-muted)]">アカウント / コイン購入</div>
           <h1 className={typography("h1")}>コインを購入する</h1>
@@ -26,7 +70,14 @@ export default function CoinPurchasePage() {
           </p>
         </header>
 
-        {/* レート説明 */}
+        {(ui.kind === "success" || ui.kind === "error") && (
+          <Card className="p-4 text-sm">
+            <div className={ui.kind === "success" ? "text-emerald-700" : "text-rose-700"}>
+              {ui.message}
+            </div>
+          </Card>
+        )}
+
         <section className="space-y-3">
           <h2 className={typography("h2")}>コインについて</h2>
 
@@ -55,16 +106,19 @@ export default function CoinPurchasePage() {
           </Card>
         </section>
 
-        {/* プラン一覧 */}
         <section className="space-y-3">
           <h2 className={typography("h2")}>コイン購入プラン</h2>
 
           <div className="grid gap-4 md:grid-cols-3">
-            {COIN_PLANS.map((plan) => {
+            {plans.map((plan) => {
               const coins = yenToCoins(plan.amountYen);
+              const isLoading = ui.kind === "loading" && ui.planId === plan.id;
 
               return (
-                <Card key={plan.id} className="flex h-full flex-col border border-[var(--v-border)] p-4">
+                <Card
+                  key={plan.id}
+                  className="flex h-full flex-col border border-[var(--v-border)] p-4"
+                >
                   <div className="mb-2 text-[11px] uppercase tracking-wide text-[var(--v-muted)]">
                     {plan.id}
                   </div>
@@ -88,9 +142,7 @@ export default function CoinPurchasePage() {
                     </div>
                   </div>
 
-                  {/* ボタンエリア */}
                   <div className="mt-auto pt-4">
-                    {/* ここは後で Stripe の Checkout セッション作成処理に置き換える */}
                     <button
                       type="button"
                       className={[
@@ -102,13 +154,14 @@ export default function CoinPurchasePage() {
                         "hover:bg-[var(--v-hover)]",
                         "disabled:cursor-not-allowed disabled:opacity-50",
                       ].join(" ")}
-                      disabled
+                      onClick={() => onBuy(plan.id)}
+                      disabled={ui.kind === "loading"}
                     >
-                      準備中（近日追加）
+                      {isLoading ? "処理中…" : "このプランで購入（v0）"}
                     </button>
 
                     <p className={typography("caption") + " mt-2 text-[var(--v-muted)]"}>
-                      コイン購入の決済処理は、今後のアップデートで有効化されます。
+                      ※ 現在はモック動作です（Stripe接続前）。
                     </p>
                   </div>
                 </Card>

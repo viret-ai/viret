@@ -8,7 +8,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs";
+import { createServerClient, type CookieOptions } from "@supabase/ssr";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,12 +17,38 @@ type AssignBody = {
   entryId?: string;
 };
 
-export async function POST(
-  req: NextRequest,
-  { params }: { params: { id: string } }
-) {
+type RouteContext = {
+  params: Promise<{ id: string }>;
+};
+
+function createSupabaseFromNextCookies(cookieStore: Awaited<ReturnType<typeof cookies>>) {
+  return createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return cookieStore.getAll();
+        },
+        setAll(cookiesToSet) {
+          try {
+            cookiesToSet.forEach(({ name, value, options }) => {
+              cookieStore.set(name, value, options as CookieOptions);
+            });
+          } catch {
+            // Route Handler 以外では set が無効な場合があるので握りつぶす
+          }
+        },
+      },
+    }
+  );
+}
+
+export async function POST(req: NextRequest, context: RouteContext) {
   // ---- 0) パラメータ・ボディ確認 ----
-  const retouchJobId = params.id;
+  const { id } = await context.params;
+  const retouchJobId = id;
+
   if (!retouchJobId) {
     return NextResponse.json(
       { error: "retouchJobId が指定されていません。" },
@@ -42,15 +68,12 @@ export async function POST(
 
   const entryId = body.entryId;
   if (!entryId) {
-    return NextResponse.json(
-      { error: "entryId が指定されていません。" },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: "entryId が指定されていません。" }, { status: 400 });
   }
 
   // ---- 1) 認証 ----
   const cookieStore = await cookies(); // Next.js16: cookies() は Promise
-  const supabase = createRouteHandlerClient({ cookies: () => cookieStore });
+  const supabase = createSupabaseFromNextCookies(cookieStore);
 
   const {
     data: { user },
@@ -79,17 +102,11 @@ export async function POST(
 
   if (jobError) {
     console.error("assign retouch_job fetch error:", jobError);
-    return NextResponse.json(
-      { error: "依頼情報の取得に失敗しました。" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "依頼情報の取得に失敗しました。" }, { status: 500 });
   }
 
   if (!retouchJob) {
-    return NextResponse.json(
-      { error: "対象のレタッチ依頼が見つかりませんでした。" },
-      { status: 404 }
-    );
+    return NextResponse.json({ error: "対象のレタッチ依頼が見つかりませんでした。" }, { status: 404 });
   }
 
   if (retouchJob.owner_id !== user.id) {
@@ -115,17 +132,11 @@ export async function POST(
 
   if (existingJobsError) {
     console.error("assign existing jobs fetch error:", existingJobsError);
-    return NextResponse.json(
-      { error: "契約情報の確認に失敗しました。" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "契約情報の確認に失敗しました。" }, { status: 500 });
   }
 
   if (existingJobs && existingJobs.length > 0) {
-    return NextResponse.json(
-      { error: "この依頼はすでに契約が開始されています。" },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: "この依頼はすでに契約が開始されています。" }, { status: 400 });
   }
 
   // ---- 4) 採用対象の応募を取得 ----
@@ -141,18 +152,12 @@ export async function POST(
 
   if (entryError) {
     console.error("assign entry fetch error:", entryError);
-    return NextResponse.json(
-      { error: "応募情報の取得に失敗しました。" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "応募情報の取得に失敗しました。" }, { status: 500 });
   }
 
   if (!entry) {
     return NextResponse.json(
-      {
-        error:
-          "指定された応募が、この依頼に紐づいていないか、存在しません。",
-      },
+      { error: "指定された応募が、この依頼に紐づいていないか、存在しません。" },
       { status: 404 }
     );
   }
@@ -175,17 +180,11 @@ export async function POST(
       : null;
 
   // 5-1) 採用された応募を accepted に更新
-  const { error: acceptError } = await supabase
-    .from("entries")
-    .update({ status: "accepted" })
-    .eq("id", entryId);
+  const { error: acceptError } = await supabase.from("entries").update({ status: "accepted" }).eq("id", entryId);
 
   if (acceptError) {
     console.error("assign accept entry error:", acceptError);
-    return NextResponse.json(
-      { error: "応募の採用処理に失敗しました。" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "応募の採用処理に失敗しました。" }, { status: 500 });
   }
 
   // 5-2) その他の応募を rejected に更新（withdrawn はそのまま）
@@ -211,10 +210,7 @@ export async function POST(
 
   if (retouchUpdateError) {
     console.error("assign retouch_job update error:", retouchUpdateError);
-    return NextResponse.json(
-      { error: "依頼ステータスの更新に失敗しました。" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "依頼ステータスの更新に失敗しました。" }, { status: 500 });
   }
 
   // 5-4) jobs に契約レコード作成
@@ -239,10 +235,7 @@ export async function POST(
 
   if (insertJobError || !insertedJobs) {
     console.error("assign jobs insert error:", insertJobError);
-    return NextResponse.json(
-      { error: "契約情報の作成に失敗しました。" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "契約情報の作成に失敗しました。" }, { status: 500 });
   }
 
   // ---- 6) 正常終了 ----

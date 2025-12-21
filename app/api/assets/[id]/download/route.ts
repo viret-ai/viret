@@ -2,17 +2,18 @@
 // app/api/assets/[id]/download/route.ts
 // 素材ダウンロード用 API（サイズ・フォーマット指定）
 // - Small:    短辺720px / 300dpi
-// - HD:       筗辺1080px / 350dpi
+// - HD:       短辺1080px / 350dpi
 // - Original: リサイズなし / 350dpi（DPIメタのみ）
 // - JPG / PNG / WebP 変換対応
 // - XMPメタデータに「assetId + @creator」を埋め込む
-// - DLログ（download_events）を user_id / guest_id で記録（失敗してもDLは通す）
+// - DLログ（download_events）を user_id で記録（失敗してもDLは通す）
+//   ※ 未ログインは仮表示で十分なので、ゲスト追跡cookieは廃止
 // =====================================
 
 import { NextRequest, NextResponse } from "next/server";
 import sharp from "sharp";
 import { cookies } from "next/headers";
-import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs";
+import { createServerClient, type CookieOptions } from "@supabase/ssr";
 
 export const runtime = "nodejs";
 
@@ -23,28 +24,27 @@ type RouteParams = {
 type SizeOption = "sm" | "hd" | "original";
 type FormatOption = "jpg" | "png" | "webp";
 
-const GUEST_COOKIE = "viret_guest";
-
-function toUuidLike(v: string | null | undefined): string | null {
-  if (!v) return null;
-  const s = v.trim().toLowerCase();
-  // // v4/v5っぽい形ならOK（厳密じゃなくて十分）
-  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(s)) {
-    return null;
-  }
-  return s;
-}
-
-function ensureGuestId(existing: string | null | undefined): { guestId: string; isNew: boolean } {
-  const ok = toUuidLike(existing);
-  if (ok) return { guestId: ok, isNew: false };
-
-  // // nodejs runtime なので globalThis.crypto.randomUUID が使える想定
-  const guestId = globalThis.crypto?.randomUUID
-    ? globalThis.crypto.randomUUID()
-    : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-
-  return { guestId, isNew: true };
+function createSupabaseFromNextCookies(cookieStore: Awaited<ReturnType<typeof cookies>>) {
+  return createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return cookieStore.getAll();
+        },
+        setAll(cookiesToSet) {
+          try {
+            cookiesToSet.forEach(({ name, value, options }) => {
+              cookieStore.set(name, value, options as CookieOptions);
+            });
+          } catch {
+            // Route Handler 以外だと set が無効な場合があるので握りつぶす
+          }
+        },
+      },
+    }
+  );
 }
 
 export async function GET(req: NextRequest, context: RouteParams) {
@@ -64,22 +64,15 @@ export async function GET(req: NextRequest, context: RouteParams) {
     : "jpg";
 
   // =====================================
-  // 0) Supabase（Route Handler Client）
-  // - ログイン判定（user_id）
-  // - DBアクセス
-  // - Storage download
+  // 0) Supabase（@supabase/ssr で統一）
   // =====================================
   const cookieStore = await cookies(); // Next.js16: cookies() は Promise
-  const supabase = createRouteHandlerClient({ cookies: () => cookieStore });
+  const supabase = createSupabaseFromNextCookies(cookieStore);
 
   // user（ログインしてなくてもOK）
   const {
     data: { user },
   } = await supabase.auth.getUser().catch(() => ({ data: { user: null as any } }));
-
-  // guest_id（未ログイン時のみ使う。ログイン時はuser_id優先）
-  const existingGuest = cookieStore.get(GUEST_COOKIE)?.value ?? null;
-  const { guestId, isNew } = ensureGuestId(existingGuest);
 
   // =====================================
   // 1) DB からアセット情報取得
@@ -101,6 +94,8 @@ export async function GET(req: NextRequest, context: RouteParams) {
     .maybeSingle();
 
   if (error || !data) {
+    // 状況把握のためログは出す（RLS / not found の切り分け）
+    console.error("assets select failed:", error);
     return new NextResponse("Asset not found", { status: 404 });
   }
 
@@ -114,10 +109,7 @@ export async function GET(req: NextRequest, context: RouteParams) {
     height: number | null;
   };
 
-  const originalPath = asset.original_path;
-  const previewPath = asset.preview_path;
-  const sourcePath = originalPath || previewPath;
-
+  const sourcePath = asset.original_path || asset.preview_path;
   if (!sourcePath) {
     return new NextResponse("File path not available", { status: 404 });
   }
@@ -144,12 +136,10 @@ export async function GET(req: NextRequest, context: RouteParams) {
   // =====================================
   // 2) Storage から元画像を取得
   // =====================================
-  const { data: fileRes, error: dlError } = await supabase.storage
-    .from("assets")
-    .download(sourcePath);
+  const { data: fileRes, error: dlError } = await supabase.storage.from("assets").download(sourcePath);
 
   if (dlError || !fileRes) {
-    console.error(dlError);
+    console.error("storage download failed:", dlError);
     return new NextResponse("File download failed", { status: 500 });
   }
 
@@ -206,10 +196,8 @@ export async function GET(req: NextRequest, context: RouteParams) {
     withoutEnlargement: true,
   });
 
-  // DPI設定：Small=300dpi, HD/Original=350dpi
   const targetDpi = size === "sm" ? 300 : 350;
 
-  // XMP メタデータを組み立て
   const descriptionText = `Viret asset ID: ${assetId} / creator: ${creatorTag}`;
   const xmp = `
 <x:xmpmeta xmlns:x="adobe:ns:meta/">
@@ -226,13 +214,11 @@ export async function GET(req: NextRequest, context: RouteParams) {
   </rdf:RDF>
 </x:xmpmeta>`.trim();
 
-  // メタデータ付与（density + XMP）
   pipeline = pipeline.withMetadata({
     density: targetDpi,
     xmp: Buffer.from(xmp, "utf8"),
   });
 
-  // フォーマット変換
   switch (format) {
     case "png":
       pipeline = pipeline.png({ compressionLevel: 9 });
@@ -249,35 +235,27 @@ export async function GET(req: NextRequest, context: RouteParams) {
   const outputBuffer = await pipeline.toBuffer();
 
   const ext = format === "jpg" ? "jpg" : format;
-  const contentType =
-    ext === "jpg" ? "image/jpeg" : ext === "png" ? "image/png" : "image/webp";
+  const contentType = ext === "jpg" ? "image/jpeg" : ext === "png" ? "image/png" : "image/webp";
 
   // =====================================
   // 5) DLログ（失敗してもDLは通す）
+  // - 未ログインは仮表示で十分なので user_id がある時だけ記録
   // =====================================
   try {
-    // // 未ログインなら guest_id で記録。ログイン時は user_id のみ入れる。
-    const actorUserId = user?.id ?? null;
-    const actorGuestId = actorUserId ? null : guestId;
-
-    await supabase.from("download_events").insert({
-      asset_id: assetId,
-      user_id: actorUserId,
-      guest_id: actorGuestId,
-      kind: "free",
-      coins: 0,
-      ref: {
-        size,
-        format: ext,
-        flow: "download_api_v1",
-        // // 将来ここに adProvider / watchedSec などを足す
-      },
-    });
+    if (user?.id) {
+      await supabase.from("download_events").insert({
+        asset_id: assetId,
+        user_id: user.id,
+        guest_id: null,
+        kind: "free",
+        coins: 0,
+        ref: { size, format: ext, flow: "download_api_v1" },
+      });
+    }
   } catch (e) {
     console.error("download_events insert failed:", e);
   }
 
-  // ファイル名を安全な形に整形
   const safeTitle =
     typeof asset.title === "string" && asset.title.trim().length > 0
       ? asset.title.trim().slice(0, 64).replace(/[/\\:*?"<>|]/g, "_")
@@ -285,7 +263,7 @@ export async function GET(req: NextRequest, context: RouteParams) {
 
   const fileName = `${safeTitle}-${size}.${ext}`;
 
-  const res = new NextResponse(outputBuffer, {
+  return new NextResponse(outputBuffer, {
     status: 200,
     headers: {
       "Content-Type": contentType,
@@ -294,17 +272,4 @@ export async function GET(req: NextRequest, context: RouteParams) {
       "Cache-Control": "public, max-age=31536000, immutable",
     },
   });
-
-  // // ゲストcookieが無ければここで発行（ログイン時でも「閲覧者の識別」用途に残してOK）
-  if (isNew) {
-    res.cookies.set(GUEST_COOKIE, guestId, {
-      httpOnly: true,
-      sameSite: "lax",
-      secure: true,
-      path: "/",
-      maxAge: 60 * 60 * 24 * 365, // 1年
-    });
-  }
-
-  return res;
 }
