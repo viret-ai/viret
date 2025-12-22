@@ -2,11 +2,14 @@
 // app/assets/[id]/DownloadPanel.tsx
 // DLパネル（即ダウンロード発火版）
 // fetch + Blob + ダウンロード
+// - 有料DLは kind=paid を付与（API側でログイン必須 + コイン減算）
+// - 401 はログイン誘導モーダル
 // =====================================
 
 "use client";
 
 import { useState, useEffect } from "react";
+import Link from "next/link";
 import Card from "@/components/ui/Card";
 
 type Props = {
@@ -26,11 +29,7 @@ const FORMAT_LABELS: Record<FormatOption, string> = {
   webp: "WebP",
 };
 
-function calcResizedSize(
-  w: number,
-  h: number,
-  targetShortEdge: number,
-) {
+function calcResizedSize(w: number, h: number, targetShortEdge: number) {
   const short = Math.min(w, h);
   const scale = targetShortEdge / short;
   return {
@@ -39,15 +38,36 @@ function calcResizedSize(
   };
 }
 
+function isPaidSize(size: SizeOption): boolean {
+  return size === "hd" || size === "original";
+}
+
 // =======================
-// ★ 即DL開始する関数
+// ★ 即DL開始する関数（ステータス別ハンドリング付き）
 // =======================
-async function triggerDownload(url: string, filename: string) {
+async function triggerDownload(
+  url: string,
+  filename: string,
+  onLoginRequired: () => void,
+) {
   const res = await fetch(url);
+
+  if (res.status === 401) {
+    onLoginRequired();
+    return;
+  }
+
+  if (res.status === 409) {
+    // // コイン不足など
+    alert("コインが不足しています。コイン購入ページでチャージしてください。");
+    return;
+  }
+
   if (!res.ok) {
     alert("ダウンロードに失敗しました");
     return;
   }
+
   const blob = await res.blob();
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
@@ -66,6 +86,7 @@ export default function DownloadPanel({
   const [format, setFormat] = useState<FormatOption>("jpg");
   const [smallUnlocked, setSmallUnlocked] = useState(false);
   const [showAdModal, setShowAdModal] = useState(false);
+  const [showLoginModal, setShowLoginModal] = useState(false);
 
   const disabled = !originalUrlExists;
 
@@ -102,16 +123,29 @@ export default function DownloadPanel({
       size,
       format,
     });
+
+    // // 有料サイズは kind=paid（API側でログイン必須 + 課金）
+    if (isPaidSize(size)) {
+      params.set("kind", "paid");
+    }
+
     return `/api/assets/${assetId}/download?${params.toString()}`;
   };
 
-  // ダウンロード共通ハンドラ
   const handleDownload = async (size: SizeOption) => {
     if (disabled) return;
+
+    // // Smallは「広告視聴で解放」された時だけDL可能（現状の仕様）
+    if (size === "sm" && !smallUnlocked) {
+      setShowAdModal(true);
+      return;
+    }
+
     const url = buildDownloadUrl(size);
     const ext = format === "jpg" ? "jpg" : format;
     const filename = `${title || "asset"}-${size}.${ext}`;
-    await triggerDownload(url, filename);
+
+    await triggerDownload(url, filename, () => setShowLoginModal(true));
   };
 
   return (
@@ -166,7 +200,11 @@ export default function DownloadPanel({
         {/* サイズボタン */}
         <div className="space-y-3">
           {/* Small */}
-          <Card variant="outline" padded className="border-slate-200 bg-slate-50 text-xs text-slate-700">
+          <Card
+            variant="outline"
+            padded
+            className="border-slate-200 bg-slate-50 text-xs text-slate-700"
+          >
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <div className="text-[11px] font-semibold text-slate-800">
@@ -268,10 +306,15 @@ export default function DownloadPanel({
           />
         </div>
       )}
+
+      {showLoginModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <LoginRequiredModal onClose={() => setShowLoginModal(false)} />
+        </div>
+      )}
     </>
   );
 }
-
 
 // -----------------------------------------
 // 広告視聴モーダル（そのまま）
@@ -328,13 +371,51 @@ function AdWatchModal({
           onClick={onComplete}
           className={[
             "rounded-full px-3 py-1 text-[11px] text-white",
-            done
-              ? "bg-emerald-600 hover:bg-emerald-500"
-              : "cursor-not-allowed bg-slate-300",
+            done ? "bg-emerald-600 hover:bg-emerald-500" : "cursor-not-allowed bg-slate-300",
           ].join(" ")}
         >
           {done ? "視聴完了" : `視聴中… ${seconds}`}
         </button>
+      </div>
+    </Card>
+  );
+}
+
+// -----------------------------------------
+// ログイン誘導モーダル（有料DL用）
+// -----------------------------------------
+function LoginRequiredModal({ onClose }: { onClose: () => void }) {
+  return (
+    <Card className="w-full max-w-sm text-xs text-slate-700">
+      <div className="text-sm font-semibold text-slate-900">ログインが必要です</div>
+
+      <p className="mt-2 leading-relaxed">
+        この画質のダウンロードはコインを使用します。
+        続けるにはログイン、または新規登録をしてください。
+      </p>
+
+      <div className="mt-4 flex items-center justify-end gap-2">
+        <button
+          type="button"
+          onClick={onClose}
+          className="rounded-full border border-slate-300 px-3 py-1 text-[11px] text-slate-600 hover:bg-slate-50"
+        >
+          閉じる
+        </button>
+
+        <Link
+          href="/login"
+          className="rounded-full bg-slate-800 px-3 py-1 text-[11px] font-semibold text-white hover:bg-slate-700"
+        >
+          ログイン
+        </Link>
+
+        <Link
+          href="/signup"
+          className="rounded-full border border-slate-300 px-3 py-1 text-[11px] font-semibold text-slate-800 hover:bg-slate-50"
+        >
+          新規登録
+        </Link>
       </div>
     </Card>
   );

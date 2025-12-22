@@ -1,19 +1,19 @@
 // =====================================
 // app/api/assets/[id]/download/route.ts
 // 素材ダウンロード用 API（サイズ・フォーマット指定）
-// - Small:    短辺720px / 300dpi
-// - HD:       短辺1080px / 350dpi
-// - Original: リサイズなし / 350dpi（DPIメタのみ）
+// - Small:    短辺720px / 300dpi（free想定）
+// - HD:       短辺1080px / 350dpi（paid想定）
+// - Original: リサイズなし / 350dpi（paid想定）
 // - JPG / PNG / WebP 変換対応
 // - XMPメタデータに「assetId + @creator」を埋め込む
-// - DLログ（download_events）を user_id で記録（失敗してもDLは通す）
-//   ※ 未ログインは仮表示で十分なので、ゲスト追跡cookieは廃止
+// - 有料DLはログイン必須 + コイン減算（coin_apply_delta）
+// - DLログ（download_events）を user_id で記録（freeは未ログインでもOK）
 // =====================================
 
 import { NextRequest, NextResponse } from "next/server";
 import sharp from "sharp";
-import { cookies } from "next/headers";
-import { createServerClient, type CookieOptions } from "@supabase/ssr";
+import { supabaseServer } from "@/lib/supabase-server";
+import { yenToCoins } from "@/lib/coins";
 
 export const runtime = "nodejs";
 
@@ -23,28 +23,17 @@ type RouteParams = {
 
 type SizeOption = "sm" | "hd" | "original";
 type FormatOption = "jpg" | "png" | "webp";
+type KindOption = "free" | "paid";
 
-function createSupabaseFromNextCookies(cookieStore: Awaited<ReturnType<typeof cookies>>) {
-  return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return cookieStore.getAll();
-        },
-        setAll(cookiesToSet) {
-          try {
-            cookiesToSet.forEach(({ name, value, options }) => {
-              cookieStore.set(name, value, options as CookieOptions);
-            });
-          } catch {
-            // Route Handler 以外だと set が無効な場合があるので握りつぶす
-          }
-        },
-      },
-    }
-  );
+// // 暫定：画質ごとの価格（円相当） → yenToCoins でコイン化
+function getPriceYenBySize(size: SizeOption): number {
+  if (size === "hd") return 100;
+  if (size === "original") return 200;
+  return 0;
+}
+
+function isPaidSize(size: SizeOption): boolean {
+  return size === "hd" || size === "original";
 }
 
 export async function GET(req: NextRequest, context: RouteParams) {
@@ -54,6 +43,7 @@ export async function GET(req: NextRequest, context: RouteParams) {
   const search = req.nextUrl.searchParams;
   const sizeParam = (search.get("size") ?? "original").toLowerCase();
   const formatParam = (search.get("format") ?? "jpg").toLowerCase();
+  const kindParam = (search.get("kind") ?? "").toLowerCase();
 
   const size: SizeOption = ["sm", "hd", "original"].includes(sizeParam)
     ? (sizeParam as SizeOption)
@@ -63,16 +53,28 @@ export async function GET(req: NextRequest, context: RouteParams) {
     ? (formatParam as FormatOption)
     : "jpg";
 
-  // =====================================
-  // 0) Supabase（@supabase/ssr で統一）
-  // =====================================
-  const cookieStore = await cookies(); // Next.js16: cookies() は Promise
-  const supabase = createSupabaseFromNextCookies(cookieStore);
+  // // kind=paid を受け取った時だけ「有料扱い」
+  const kind: KindOption = kindParam === "paid" ? "paid" : "free";
 
-  // user（ログインしてなくてもOK）
+  // =====================================
+  // 0) Supabase（server helper 統一）
+  // =====================================
+  const supabase = await supabaseServer();
+
   const {
     data: { user },
   } = await supabase.auth.getUser().catch(() => ({ data: { user: null as any } }));
+
+  // =====================================
+  // 0.5) 有料DL：ログイン必須
+  // =====================================
+  const shouldCharge = kind === "paid" && isPaidSize(size);
+  if (shouldCharge && !user?.id) {
+    return NextResponse.json(
+      { ok: false, error: "LOGIN_REQUIRED" },
+      { status: 401 }
+    );
+  }
 
   // =====================================
   // 1) DB からアセット情報取得
@@ -94,8 +96,6 @@ export async function GET(req: NextRequest, context: RouteParams) {
     .maybeSingle();
 
   if (error || !data) {
-    // 状況把握のためログは出す（RLS / not found の切り分け）
-    console.error("assets select failed:", error);
     return new NextResponse("Asset not found", { status: 404 });
   }
 
@@ -134,40 +134,61 @@ export async function GET(req: NextRequest, context: RouteParams) {
     : "unknown_creator";
 
   // =====================================
-  // 2) Storage から元画像を取得
+  // 2) 有料DL：コイン減算（先に引く）
   // =====================================
-  const { data: fileRes, error: dlError } = await supabase.storage.from("assets").download(sourcePath);
+  let chargedCoins = 0;
 
-  if (dlError || !fileRes) {
-    console.error("storage download failed:", dlError);
-    return new NextResponse("File download failed", { status: 500 });
-  }
+  if (shouldCharge && user?.id) {
+    const priceYen = getPriceYenBySize(size);
+    const priceCoins = yenToCoins(priceYen);
 
-  const arrayBuffer = await fileRes.arrayBuffer();
-  const inputBuffer = Buffer.from(arrayBuffer);
+    if (priceCoins > 0) {
+      const { error: rpcError } = await supabase.rpc("coin_apply_delta", {
+        uid: user.id,
+        delta: -Math.floor(priceCoins),
+        reason_code: "asset_download_debit",
+        source_type: "asset",
+        source_id: assetId,
+        note: `download:${size}:${format}`,
+      });
 
-  // =====================================
-  // 3) 元画像サイズを決定（DB優先／なければ metadata）
-  // =====================================
-  let width = asset.width;
-  let height = asset.height;
-
-  const meta = await sharp(inputBuffer).metadata();
-
-  if (!width || !height) {
-    if (meta.width && meta.height) {
-      width = meta.width;
-      height = meta.height;
-      try {
-        await supabase.from("assets").update({ width, height }).eq("id", assetId);
-      } catch {
-        // backfill 失敗は致命的でないので無視
+      if (rpcError) {
+        const msg = String(rpcError.message || "");
+        if (msg.includes("INSUFFICIENT_COINS")) {
+          return NextResponse.json(
+            { ok: false, error: "INSUFFICIENT_COINS" },
+            { status: 409 }
+          );
+        }
+        return NextResponse.json(
+          { ok: false, error: "RPC_FAILED", detail: rpcError.message },
+          { status: 500 }
+        );
       }
+
+      chargedCoins = Math.floor(priceCoins);
     }
   }
 
-  const originalWidth = width ?? meta.width ?? null;
-  const originalHeight = height ?? meta.height ?? null;
+  // =====================================
+  // 3) Storage から元画像を取得
+  // =====================================
+  const { data: fileRes, error: dlError } = await supabase.storage
+    .from("assets")
+    .download(sourcePath);
+
+  if (dlError || !fileRes) {
+    return new NextResponse("File download failed", { status: 500 });
+  }
+
+  const inputBuffer = Buffer.from(await fileRes.arrayBuffer());
+
+  // =====================================
+  // 4) 元画像サイズ決定
+  // =====================================
+  const meta = await sharp(inputBuffer).metadata();
+  const originalWidth = asset.width ?? meta.width;
+  const originalHeight = asset.height ?? meta.height;
 
   if (!originalWidth || !originalHeight) {
     return new NextResponse("Could not determine image size", { status: 500 });
@@ -176,25 +197,19 @@ export async function GET(req: NextRequest, context: RouteParams) {
   const shortEdge = Math.min(originalWidth, originalHeight);
 
   // =====================================
-  // 4) リサイズ＋メタデータ（XMP込み）＋フォーマット変換
+  // 5) リサイズ＋XMP＋変換
   // =====================================
   let targetWidth = originalWidth;
   let targetHeight = originalHeight;
 
-  if (size === "sm" || size === "hd") {
+  if (size !== "original") {
     const targetShort = size === "sm" ? 720 : 1080;
-
     if (shortEdge > targetShort) {
       const scale = targetShort / shortEdge;
       targetWidth = Math.round(originalWidth * scale);
       targetHeight = Math.round(originalHeight * scale);
     }
   }
-
-  let pipeline = sharp(inputBuffer).resize(targetWidth, targetHeight, {
-    fit: "inside",
-    withoutEnlargement: true,
-  });
 
   const targetDpi = size === "sm" ? 300 : 350;
 
@@ -214,62 +229,41 @@ export async function GET(req: NextRequest, context: RouteParams) {
   </rdf:RDF>
 </x:xmpmeta>`.trim();
 
-  pipeline = pipeline.withMetadata({
-    density: targetDpi,
-    xmp: Buffer.from(xmp, "utf8"),
-  });
+  let pipeline = sharp(inputBuffer)
+    .resize(targetWidth, targetHeight, { fit: "inside", withoutEnlargement: true })
+    .withMetadata({ density: targetDpi, xmp: Buffer.from(xmp, "utf8") });
 
-  switch (format) {
-    case "png":
-      pipeline = pipeline.png({ compressionLevel: 9 });
-      break;
-    case "webp":
-      pipeline = pipeline.webp({ quality: 95 });
-      break;
-    case "jpg":
-    default:
-      pipeline = pipeline.jpeg({ quality: 95, chromaSubsampling: "4:4:4" });
-      break;
-  }
+  if (format === "png") pipeline = pipeline.png({ compressionLevel: 9 });
+  else if (format === "webp") pipeline = pipeline.webp({ quality: 95 });
+  else pipeline = pipeline.jpeg({ quality: 95, chromaSubsampling: "4:4:4" });
 
   const outputBuffer = await pipeline.toBuffer();
 
-  const ext = format === "jpg" ? "jpg" : format;
-  const contentType = ext === "jpg" ? "image/jpeg" : ext === "png" ? "image/png" : "image/webp";
-
   // =====================================
-  // 5) DLログ（失敗してもDLは通す）
-  // - 未ログインは仮表示で十分なので user_id がある時だけ記録
+  // 6) DLログ
   // =====================================
   try {
-    if (user?.id) {
-      await supabase.from("download_events").insert({
-        asset_id: assetId,
-        user_id: user.id,
-        guest_id: null,
-        kind: "free",
-        coins: 0,
-        ref: { size, format: ext, flow: "download_api_v1" },
-      });
-    }
-  } catch (e) {
-    console.error("download_events insert failed:", e);
-  }
+    await supabase.from("download_events").insert({
+      asset_id: assetId,
+      user_id: user?.id ?? null,
+      guest_id: null,
+      kind: shouldCharge ? "paid" : "free",
+      coins: shouldCharge ? chargedCoins : 0,
+      ref: { size, format },
+    });
+  } catch {}
 
-  const safeTitle =
-    typeof asset.title === "string" && asset.title.trim().length > 0
-      ? asset.title.trim().slice(0, 64).replace(/[/\\:*?"<>|]/g, "_")
-      : `asset-${assetId}`;
-
-  const fileName = `${safeTitle}-${size}.${ext}`;
+  const ext = format === "jpg" ? "jpg" : format;
+  const fileName = `${asset.title || "asset"}-${size}.${ext}`;
 
   return new NextResponse(outputBuffer, {
-    status: 200,
     headers: {
-      "Content-Type": contentType,
-      "Content-Length": outputBuffer.length.toString(),
+      "Content-Type":
+        ext === "jpg" ? "image/jpeg" : ext === "png" ? "image/png" : "image/webp",
       "Content-Disposition": `attachment; filename="${encodeURIComponent(fileName)}"`,
-      "Cache-Control": "public, max-age=31536000, immutable",
+      "Cache-Control": shouldCharge
+        ? "private, no-store"
+        : "public, max-age=31536000, immutable",
     },
   });
 }
