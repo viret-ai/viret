@@ -70,10 +70,7 @@ export async function GET(req: NextRequest, context: RouteParams) {
   // =====================================
   const shouldCharge = kind === "paid" && isPaidSize(size);
   if (shouldCharge && !user?.id) {
-    return NextResponse.json(
-      { ok: false, error: "LOGIN_REQUIRED" },
-      { status: 401 }
-    );
+    return NextResponse.json({ ok: false, error: "LOGIN_REQUIRED" }, { status: 401 });
   }
 
   // =====================================
@@ -81,17 +78,7 @@ export async function GET(req: NextRequest, context: RouteParams) {
   // =====================================
   const { data, error } = await supabase
     .from("assets")
-    .select(
-      [
-        "id",
-        "owner_id",
-        "title",
-        "original_path",
-        "preview_path",
-        "width",
-        "height",
-      ].join(",")
-    )
+    .select(["id", "owner_id", "title", "original_path", "preview_path", "width", "height"].join(","))
     .eq("id", assetId)
     .maybeSingle();
 
@@ -130,43 +117,49 @@ export async function GET(req: NextRequest, context: RouteParams) {
   const creatorTag = creatorHandle
     ? `@${creatorHandle}`
     : asset.owner_id
-    ? `creator_${asset.owner_id.slice(0, 8)}`
-    : "unknown_creator";
+      ? `creator_${asset.owner_id.slice(0, 8)}`
+      : "unknown_creator";
 
   // =====================================
   // 2) 有料DL：コイン減算（先に引く）
+  // - サイズ買い切り：assetId + size で一意（formatは含めない）
+  // - 既に購入済み（unique衝突）なら課金せずDL続行
   // =====================================
   let chargedCoins = 0;
 
   if (shouldCharge && user?.id) {
     const priceYen = getPriceYenBySize(size);
-    const priceCoins = yenToCoins(priceYen);
+    const priceCoins = Math.floor(yenToCoins(priceYen));
 
     if (priceCoins > 0) {
+      const chargeSourceType = "asset_download";
+      const chargeSourceId = `${assetId}:${size}`; // // ★ サイズ買い切り（formatは含めない）
+
       const { error: rpcError } = await supabase.rpc("coin_apply_delta", {
         uid: user.id,
-        delta: -Math.floor(priceCoins),
+        delta: -priceCoins,
         reason_code: "asset_download_debit",
-        source_type: "asset",
-        source_id: assetId,
+        source_type: chargeSourceType,
+        source_id: chargeSourceId,
         note: `download:${size}:${format}`,
       });
 
       if (rpcError) {
         const msg = String(rpcError.message || "");
-        if (msg.includes("INSUFFICIENT_COINS")) {
-          return NextResponse.json(
-            { ok: false, error: "INSUFFICIENT_COINS" },
-            { status: 409 }
-          );
-        }
-        return NextResponse.json(
-          { ok: false, error: "RPC_FAILED", detail: rpcError.message },
-          { status: 500 }
-        );
-      }
 
-      chargedCoins = Math.floor(priceCoins);
+        if (msg.includes("INSUFFICIENT_COINS")) {
+          return NextResponse.json({ ok: false, error: "INSUFFICIENT_COINS" }, { status: 409 });
+        }
+
+        if (msg.includes("duplicate key value") || msg.includes("coin_ledger_source_unique_idx")) {
+          // // 既に購入済み：課金はスキップしてDL続行
+          chargedCoins = 0;
+        } else {
+          return NextResponse.json({ ok: false, error: "RPC_FAILED", detail: rpcError.message }, { status: 500 });
+        }
+      } else {
+        chargedCoins = priceCoins;
+      }
     }
   }
 
@@ -258,12 +251,9 @@ export async function GET(req: NextRequest, context: RouteParams) {
 
   return new NextResponse(outputBuffer, {
     headers: {
-      "Content-Type":
-        ext === "jpg" ? "image/jpeg" : ext === "png" ? "image/png" : "image/webp",
+      "Content-Type": ext === "jpg" ? "image/jpeg" : ext === "png" ? "image/png" : "image/webp",
       "Content-Disposition": `attachment; filename="${encodeURIComponent(fileName)}"`,
-      "Cache-Control": shouldCharge
-        ? "private, no-store"
-        : "public, max-age=31536000, immutable",
+      "Cache-Control": shouldCharge ? "private, no-store" : "public, max-age=31536000, immutable",
     },
   });
 }

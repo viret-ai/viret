@@ -1,9 +1,9 @@
 // =====================================
 // app/assets/[id]/DownloadPanel.tsx
 // DLパネル（即ダウンロード発火版）
-// fetch + Blob + ダウンロード
-// - 有料DLは kind=paid を付与（API側でログイン必須 + コイン減算）
-// - 401 はログイン誘導モーダル
+// - Small：広告視聴で無料DL
+// - HD / Original：サイズごと買い切り（🪙）
+// - 購入済みサイズは「広告なし」を明示
 // =====================================
 
 "use client";
@@ -43,7 +43,7 @@ function isPaidSize(size: SizeOption): boolean {
 }
 
 // =======================
-// ★ 即DL開始する関数（ステータス別ハンドリング付き）
+// 即DL開始（ステータス別処理）
 // =======================
 async function triggerDownload(
   url: string,
@@ -58,8 +58,7 @@ async function triggerDownload(
   }
 
   if (res.status === 409) {
-    // // コイン不足など
-    alert("コインが不足しています。コイン購入ページでチャージしてください。");
+    alert("コインが不足しています。");
     return;
   }
 
@@ -87,6 +86,9 @@ export default function DownloadPanel({
   const [smallUnlocked, setSmallUnlocked] = useState(false);
   const [showAdModal, setShowAdModal] = useState(false);
   const [showLoginModal, setShowLoginModal] = useState(false);
+
+  // 購入済みサイズ（hd / original）
+  const [purchasedSizes, setPurchasedSizes] = useState<Set<SizeOption>>(new Set());
 
   const disabled = !originalUrlExists;
 
@@ -118,24 +120,44 @@ export default function DownloadPanel({
     ? `Original（${originalWidth}×${originalHeight}：350dpi）`
     : "Original（元サイズ：350dpi）";
 
+  // =====================================
+  // 購入済みサイズ取得
+  // =====================================
+  useEffect(() => {
+    let alive = true;
+
+    const run = async () => {
+      try {
+        const res = await fetch(`/api/assets/${assetId}/purchases`, {
+          cache: "no-store",
+        });
+        if (!res.ok) return;
+
+        const json = await res.json();
+        const sizes = (json?.purchasedSizes ?? []) as SizeOption[];
+        if (!alive) return;
+
+        setPurchasedSizes(new Set(sizes));
+      } catch {}
+    };
+
+    run();
+    return () => {
+      alive = false;
+    };
+  }, [assetId]);
+
+  const isPurchased = (size: SizeOption) => purchasedSizes.has(size);
+
   const buildDownloadUrl = (size: SizeOption) => {
-    const params = new URLSearchParams({
-      size,
-      format,
-    });
-
-    // // 有料サイズは kind=paid（API側でログイン必須 + 課金）
-    if (isPaidSize(size)) {
-      params.set("kind", "paid");
-    }
-
+    const params = new URLSearchParams({ size, format });
+    if (isPaidSize(size)) params.set("kind", "paid");
     return `/api/assets/${assetId}/download?${params.toString()}`;
   };
 
   const handleDownload = async (size: SizeOption) => {
     if (disabled) return;
 
-    // // Smallは「広告視聴で解放」された時だけDL可能（現状の仕様）
     if (size === "sm" && !smallUnlocked) {
       setShowAdModal(true);
       return;
@@ -147,6 +169,9 @@ export default function DownloadPanel({
 
     await triggerDownload(url, filename, () => setShowLoginModal(true));
   };
+
+  const paidButtonLabel = (size: SizeOption, priceLabel: string) =>
+    isPurchased(size) ? "DL｜🪙購入済" : priceLabel;
 
   return (
     <>
@@ -163,13 +188,6 @@ export default function DownloadPanel({
           )}
         </div>
 
-        {/* Download */}
-        <div>
-          <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-            Download
-          </div>
-        </div>
-
         {/* Format */}
         <div>
           <div className="mb-1 text-[11px] font-semibold text-slate-600">
@@ -177,17 +195,16 @@ export default function DownloadPanel({
           </div>
           <div className="flex flex-wrap gap-2">
             {(Object.keys(FORMAT_LABELS) as FormatOption[]).map((f) => {
-              const isActive = f === format;
+              const active = f === format;
               return (
                 <button
                   key={f}
-                  type="button"
                   onClick={() => setFormat(f)}
                   className={[
-                    "rounded-full border px-3 py-1 text-[11px] font-semibold transition-colors",
-                    isActive
+                    "rounded-full border px-3 py-1 text-[11px] font-semibold",
+                    active
                       ? "border-sky-500 bg-sky-500 text-white"
-                      : "border-slate-300 bg-white text-slate-700 hover:border-sky-400 hover:text-sky-800",
+                      : "border-slate-300 bg-white text-slate-700 hover:border-sky-400",
                   ].join(" ")}
                 >
                   {FORMAT_LABELS[f]}
@@ -197,17 +214,13 @@ export default function DownloadPanel({
           </div>
         </div>
 
-        {/* サイズボタン */}
+        {/* Sizes */}
         <div className="space-y-3">
           {/* Small */}
-          <Card
-            variant="outline"
-            padded
-            className="border-slate-200 bg-slate-50 text-xs text-slate-700"
-          >
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <Card variant="outline" padded className="bg-slate-50">
+            <div className="flex justify-between items-center gap-2">
               <div>
-                <div className="text-[11px] font-semibold text-slate-800">
+                <div className="text-[11px] font-semibold">
                   {smallSize
                     ? `Small（${smallSize.w}×${smallSize.h}：300dpi）`
                     : "Small（720px：300dpi）"}
@@ -219,18 +232,15 @@ export default function DownloadPanel({
 
               {smallUnlocked ? (
                 <button
-                  type="button"
                   onClick={() => handleDownload("sm")}
-                  disabled={disabled}
-                  className="mt-1 inline-flex items-center justify-center rounded-full bg-emerald-600 px-3 py-1 text-[11px] font-semibold text-white hover:bg-emerald-500 disabled:bg-slate-300"
+                  className="rounded-full bg-emerald-600 px-3 py-1 text-[11px] text-white"
                 >
-                  DL｜¥0
+                  DL｜🪙0
                 </button>
               ) : (
                 <button
-                  type="button"
                   onClick={() => setShowAdModal(true)}
-                  className="mt-1 inline-flex items-center justify-center rounded-full border border-emerald-500 px-3 py-1 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-50"
+                  className="rounded-full border border-emerald-500 px-3 py-1 text-[11px] text-emerald-700"
                 >
                   広告を見て無料DL
                 </button>
@@ -239,56 +249,55 @@ export default function DownloadPanel({
           </Card>
 
           {/* HD */}
-          <Card variant="outline" padded className="text-xs text-slate-700">
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <Card variant="outline" padded>
+            <div className="flex justify-between items-center gap-2">
               <div>
-                <div className="text-[11px] font-semibold text-slate-800">
+                <div className="text-[11px] font-semibold">
                   {hdSize
                     ? `HD（${hdSize.w}×${hdSize.h}：350dpi）`
                     : "HD（1080px：350dpi）"}
                 </div>
                 <div className="text-[10px] text-amber-600">
-                  {hdAvailable
-                    ? "ポイント・サブスク向けの高解像度サイズです"
-                    : "元画像の短辺が1080px未満のため、HDは利用できません"}
+                  {isPurchased("hd")
+                    ? "このサイズは購入済です（広告なし）"
+                    : hdAvailable
+                      ? "ポイント向けの高解像度サイズです"
+                      : "元画像の短辺が1080px未満のため利用できません"}
                 </div>
               </div>
 
               <button
-                type="button"
-                onClick={() => handleDownload("hd")}
                 disabled={hdDisabled}
+                onClick={() => handleDownload("hd")}
                 className={[
-                  "mt-1 inline-flex items-center justify-center rounded-full px-3 py-1 text-[11px] font-semibold",
+                  "rounded-full px-3 py-1 text-[11px] font-semibold",
                   hdDisabled
-                    ? "cursor-not-allowed bg-slate-300 text-slate-500"
-                    : "bg-slate-700 text-white hover:bg-slate-600",
+                    ? "bg-slate-300 text-slate-500"
+                    : "bg-slate-700 text-white",
                 ].join(" ")}
               >
-                {hdAvailable ? "DL｜¥100" : "HD非対応"}
+                {hdAvailable ? paidButtonLabel("hd", "DL｜🪙100") : "HD非対応"}
               </button>
             </div>
           </Card>
 
           {/* Original */}
-          <Card variant="outline" padded className="text-xs text-slate-700">
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <Card variant="outline" padded>
+            <div className="flex justify-between items-center gap-2">
               <div>
-                <div className="text-[11px] font-semibold text-slate-800">
-                  {originalLabel}
-                </div>
+                <div className="text-[11px] font-semibold">{originalLabel}</div>
                 <div className="text-[10px] text-amber-600">
-                  元サイズデータ（350dpi 推奨）
+                  {isPurchased("original")
+                    ? "このサイズは購入済です（広告なし）"
+                    : "元サイズデータ（350dpi 推奨）"}
                 </div>
               </div>
 
               <button
-                type="button"
-                disabled={disabled}
                 onClick={() => handleDownload("original")}
-                className="mt-1 inline-flex items-center justify-center rounded-full bg-slate-800 px-3 py-1 text-[11px] font-semibold text-white hover:bg-slate-700 disabled:bg-slate-300"
+                className="rounded-full bg-slate-800 px-3 py-1 text-[11px] text-white"
               >
-                DL｜¥200
+                {paidButtonLabel("original", "DL｜🪙200")}
               </button>
             </div>
           </Card>
@@ -317,7 +326,7 @@ export default function DownloadPanel({
 }
 
 // -----------------------------------------
-// 広告視聴モーダル（そのまま）
+// 広告視聴モーダル
 // -----------------------------------------
 function AdWatchModal({
   onClose,
@@ -327,54 +336,28 @@ function AdWatchModal({
   onComplete: () => void;
 }) {
   const [seconds, setSeconds] = useState(5);
-  const [done, setDone] = useState(false);
 
   useEffect(() => {
-    if (seconds <= 0) {
-      setDone(true);
-      return;
-    }
+    if (seconds <= 0) return;
     const t = setTimeout(() => setSeconds((s) => s - 1), 1000);
     return () => clearTimeout(t);
   }, [seconds]);
 
   return (
-    <Card className="w-full max-w-sm text-xs text-slate-700">
-      <div className="text-sm font-semibold text-slate-900">広告視聴（テスト）</div>
-
-      <p className="mt-2 leading-relaxed">
-        {!done ? (
-          <>
-            実際の広告は 5〜10秒ほどの動画になります。{" "}
-            <span className="font-bold">{seconds}秒</span>
-            経過すると視聴完了になります。
-          </>
-        ) : (
-          <>視聴完了しました。Smallサイズの無料DLが解放されます。</>
-        )}
+    <Card className="w-full max-w-sm text-xs">
+      <div className="font-semibold">広告視聴（テスト）</div>
+      <p className="mt-2">
+        {seconds > 0
+          ? `${seconds}秒で視聴完了します`
+          : "視聴完了しました"}
       </p>
-
-      <div className="mt-4 flex justify-end gap-2">
-        {!done && (
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-full border border-slate-300 px-3 py-1 text-[11px] text-slate-600 hover:bg-slate-50"
-          >
-            やめる
-          </button>
-        )}
-
+      <div className="mt-4 flex justify-end">
         <button
-          type="button"
-          disabled={!done}
+          disabled={seconds > 0}
           onClick={onComplete}
-          className={[
-            "rounded-full px-3 py-1 text-[11px] text-white",
-            done ? "bg-emerald-600 hover:bg-emerald-500" : "cursor-not-allowed bg-slate-300",
-          ].join(" ")}
+          className="rounded-full bg-emerald-600 px-3 py-1 text-white"
         >
-          {done ? "視聴完了" : `視聴中… ${seconds}`}
+          視聴完了
         </button>
       </div>
     </Card>
@@ -382,39 +365,19 @@ function AdWatchModal({
 }
 
 // -----------------------------------------
-// ログイン誘導モーダル（有料DL用）
+// ログイン誘導
 // -----------------------------------------
 function LoginRequiredModal({ onClose }: { onClose: () => void }) {
   return (
-    <Card className="w-full max-w-sm text-xs text-slate-700">
-      <div className="text-sm font-semibold text-slate-900">ログインが必要です</div>
-
-      <p className="mt-2 leading-relaxed">
-        この画質のダウンロードはコインを使用します。
-        続けるにはログイン、または新規登録をしてください。
-      </p>
-
-      <div className="mt-4 flex items-center justify-end gap-2">
-        <button
-          type="button"
-          onClick={onClose}
-          className="rounded-full border border-slate-300 px-3 py-1 text-[11px] text-slate-600 hover:bg-slate-50"
-        >
+    <Card className="w-full max-w-sm text-xs">
+      <div className="font-semibold">ログインが必要です</div>
+      <p className="mt-2">この画質のDLにはログインが必要です。</p>
+      <div className="mt-4 flex justify-end gap-2">
+        <button onClick={onClose} className="rounded-full border px-3 py-1">
           閉じる
         </button>
-
-        <Link
-          href="/login"
-          className="rounded-full bg-slate-800 px-3 py-1 text-[11px] font-semibold text-white hover:bg-slate-700"
-        >
+        <Link href="/login" className="rounded-full bg-slate-800 px-3 py-1 text-white">
           ログイン
-        </Link>
-
-        <Link
-          href="/signup"
-          className="rounded-full border border-slate-300 px-3 py-1 text-[11px] font-semibold text-slate-800 hover:bg-slate-50"
-        >
-          新規登録
         </Link>
       </div>
     </Card>
